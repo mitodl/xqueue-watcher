@@ -158,11 +158,19 @@ class XQueueClient(object):
                 self.processing = True
                 success = self._handle_submission(content)
             return success
-        except requests.exceptions.Timeout:
-            return True
+        except requests.exceptions.Timeout as e:
+            request_body_summary = ''
+            if e.request.body:
+                # self._request uses Content-Type: 'application/x-www-form-urlencoded', which can be
+                # decoded using urlparse.parse_qs
+                request_body_summary = (
+                    "(xqueue_header: %s)" % urlparse.parse_qs(e.request.body).get('xqueue_header', '')
+                )
+            log.error("Timeout during request to '%s' %s", e.request.url, request_body_summary)
+            return False
         except Exception as e:
             log.exception(e.message)
-            return True
+            return False
 
     def run(self):
         """

@@ -65,6 +65,7 @@ class ClientTests(unittest.TestCase):
 
     def _simple_handler(self, content):
         self.qitem = content
+        return content
 
     def test_repr(self):
         self.assertEqual(repr(self.client), 'XQueueClient(%s)' % self.client.queue_name)
@@ -76,19 +77,20 @@ class ClientTests(unittest.TestCase):
         self.assertTrue(self.qitem is not None)
         self.assertEqual(self.qitem, json.loads(self.sample_item['content']))
 
-        # try with different return_code
+    def test_process_one_with_bad_submission_data(self):
+        # Try with no return_code. Should not succeed because submission data from the queue
+        # is expected to include a return_code value. If no return_code exists, the response will not
+        # be parsed correctly.
         del self.sample_item['return_code']
         reply = self.client.process_one()
-        self.assertTrue(reply)
-        self.assertTrue(self.qitem is not None)
-        self.assertEqual(self.qitem, json.loads(self.sample_item['content']))
+        self.assertFalse(reply)
 
-        # try with wrong return code
+        # Response parsing should also be incorrect with a different 'success' value
         self.sample_item['success'] = 'bad'
         reply = self.client.process_one()
         self.assertFalse(reply)
 
-        # try with no return code
+        # Response parsing should also be incorrect with no 'success' value
         del self.sample_item['success']
         reply = self.client.process_one()
         self.assertFalse(reply)
@@ -114,7 +116,7 @@ class ClientTests(unittest.TestCase):
 
         self.client.add_handler(raises)
         reply = self.client.process_one()
-        self.assertTrue(reply)
+        self.assertFalse(reply)
         self.assertTrue(self.excepted)
         self.assertTrue(self.qitem is not None)
 
@@ -135,10 +137,29 @@ class ClientTests(unittest.TestCase):
         reply = self.client.process_one()
         self.assertFalse(reply)
 
-        # handle timeout
-        self.session._fail = requests.exceptions.Timeout()
+    def test_get_submission_timeout(self):
+        self.client.add_handler(self._simple_handler)
+        # handle timeout for a POST request to 'get_submission'
+
+        def get_submission(url, response, session):
+            if url.endswith('xqueue/get_submission/'):
+                session._fail = requests.exceptions.Timeout(request=mock.Mock(body=None))
+        self.session._url_checker = get_submission
+
         reply = self.client.process_one()
-        self.assertTrue(reply)
+        self.assertFalse(reply)
+
+    def test_put_result_timeout(self):
+        self.client.add_handler(self._simple_handler)
+        # handle timeout for a POST request to 'put_result'
+
+        def put_result(url, response, session):
+            if url.endswith('xqueue/put_result/'):
+                session._fail = requests.exceptions.Timeout(request=mock.Mock(body="body data"))
+        self.session._url_checker = put_result
+
+        reply = self.client.process_one()
+        self.assertFalse(reply)
 
     def test_redirect_to_login(self):
         self.client.add_handler(self._simple_handler)

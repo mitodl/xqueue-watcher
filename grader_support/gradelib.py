@@ -241,7 +241,6 @@ def _tokens(code):
     code = code.rstrip() + "\n"
     if isinstance(code, six.text_type):
         code = code.encode('utf8')
-    code = "# coding: utf8\n" + code
     toks = tokenize.generate_tokens(six.BytesIO(code).readline)
     return toks
 

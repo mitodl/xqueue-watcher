@@ -250,7 +250,7 @@ def _count_tokens(code, string):
 
     try:
         for ttyp, ttok, __, __, __ in _tokens(code):
-            if ttyp (COMMENT, STRING):
+            if ttyp in (COMMENT, STRING):
                 continue
             if ttok == string:
                 count += 1

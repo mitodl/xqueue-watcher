@@ -120,8 +120,8 @@ class Manager(object):
         user = codejail_config.get('user', getpass.getuser())
         jail_code.configure(name, bin_path, user=user)
         limits = codejail_config.get("limits", {})
-        for name, value in limits.items():
-            jail_code.set_limit(name, value)
+        for limit_name, value in limits.items():
+            jail_code.set_limit(limit_name, value)
         self.log.info("configured codejail -> %s %s %s", name, bin_path, user)
         return name
 

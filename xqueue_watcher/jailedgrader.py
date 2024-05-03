@@ -81,7 +81,7 @@ class JailedGrader(Grader):
         if self.locale_dir.exists():
             files.append(self.locale_dir)
         extra_files = [('submission.py', thecode.encode('utf-8'))]
-        argv = ["-m", "grader_support.run", Path(grader_path).basename(), 'submission.py', seed]
+        argv = ["-B", "-m", "grader_support.run", Path(grader_path).basename(), 'submission.py', seed]
         r = codejail.jail_code.jail_code(self.codejail_python, files=files, extra_files=extra_files, argv=argv)
         return r
 

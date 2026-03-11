@@ -24,9 +24,9 @@ services:
         condition: service_healthy
     volumes:
       # Mount the local conf.d so you can edit queue configs without rebuilding.
-      - ./conf.d:/etc/xqueue-watcher/conf.d:ro
+      - ./conf.d:/etc/xqueue-watcher/conf.d:rw
       # Mount local grader scripts for rapid iteration.
-      - ./data:/graders:ro
+      - ./data:/graders:rw
     environment:
       # Use docker backend so grading containers run locally via the Docker socket.
       GRADER_BACKEND: docker

@@ -55,11 +55,9 @@ The infrastructure costs for the current installation of xqueue-watchers is appr
 
 The total estimated cost per learner is \~$5/learner/month. This is based on the above costs and an enrollment rate of \~3,700 verified learners per course term.
 
-## 
-
 ## Comparison To Alternatives
 
-|  | Xqueue/Xqueue-Watcher | Cod.io |
+| Property | Xqueue/Xqueue-Watcher | Cod.io |
 | :---- | :---- | :---- |
 | Cost | \~$5/student/month | \~$12/student/month minimum |
 | Compatibility | Open edX only | Open edX, Canvas, any LMS that supports LTI |

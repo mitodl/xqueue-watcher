@@ -251,7 +251,10 @@ class ContainerGrader(Grader):
 
         client = docker_sdk.from_env()
         try:
-            result = client.containers.run(
+            # Run detached so we can enforce a wall-clock timeout via container.wait().
+            # containers.run() does not accept a timeout argument; using detach=True
+            # lets us call container.wait(timeout=...) to cap execution time.
+            container = client.containers.run(
                 image=self.image,
                 command=[container_grader_path, "submission.py", str(seed)],
                 working_dir="/grader",
@@ -261,11 +264,19 @@ class ContainerGrader(Grader):
                 nano_cpus=int(_parse_cpu_millis(self.cpu_limit) * 1_000_000),
                 network_disabled=True,
                 read_only=True,
-                remove=True,
+                detach=True,
                 stdout=True,
                 stderr=False,
-                timeout=self.timeout,
             )
+            try:
+                exit_info = container.wait(timeout=self.timeout)
+                if exit_info.get("StatusCode", 0) != 0:
+                    raise RuntimeError(
+                        f"Grading container exited with non-zero status: {exit_info}"
+                    )
+                result = container.logs(stdout=True, stderr=False)
+            finally:
+                container.remove(force=True)
         except docker_sdk.errors.ContainerError as exc:
             raise RuntimeError(
                 f"Grading container exited with error: {exc}"
@@ -347,7 +358,7 @@ class ContainerGrader(Grader):
 
         if not expected_ok:
             results["errors"].append(
-                "There was a problem running the staff solution (Staff debug: L364)"
+                "There was a problem running the staff solution (Staff debug)."
             )
             self.log.error(
                 "Couldn't run staff solution. grader = %s, output: %r",
@@ -368,7 +379,7 @@ class ContainerGrader(Grader):
                 actual_ok = True
             else:
                 results["errors"].append(
-                    "There was a problem running your solution (Staff debug: L379)."
+                    "There was a problem running your solution (Staff debug)."
                 )
         except Exception:
             actual_exc = sys.exc_info()
@@ -384,7 +395,7 @@ class ContainerGrader(Grader):
 
         if not actual_ok:
             results["errors"].append(
-                "We couldn't run your solution (Staff debug: L397)."
+                "We couldn't run your solution (Staff debug)."
             )
             self.log.error(
                 "Couldn't run student solution. grader = %s, output: %r",
@@ -433,7 +444,7 @@ class ContainerGrader(Grader):
 
         if n == 0 and not results["errors"]:
             results["errors"] = [
-                "There was a problem while running your code (Staff debug: L450). "
+                "There was a problem while running your code (Staff debug). "
                 "Please contact the course staff for assistance."
             ]
 

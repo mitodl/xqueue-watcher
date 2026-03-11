@@ -131,6 +131,18 @@ class Grader:
             self.log.debug(f"Processing submission, grader payload: {payload}")
             relative_grader_path = grader_config['grader']
             grader_path = (self.grader_root / relative_grader_path).absolute()
+            # Guard against path traversal: ensure the resolved path stays
+            # within grader_root.  Convert to pathlib for relative_to().
+            import pathlib
+            try:
+                pathlib.Path(str(grader_path)).relative_to(
+                    pathlib.Path(str(self.grader_root)).resolve()
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"Grader path {relative_grader_path!r} resolves outside "
+                    f"grader_root {self.grader_root!r}"
+                ) from exc
             start = time.time()
             results = self.grade(grader_path, grader_config, student_response)
 

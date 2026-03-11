@@ -12,19 +12,22 @@ RUN apt-get update && \
 
 RUN useradd -m --shell /bin/false app
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 WORKDIR /edx/app/xqueue_watcher
-COPY requirements /edx/app/xqueue_watcher/requirements
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements/production.txt
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 
 COPY . /edx/app/xqueue_watcher
+RUN uv sync --frozen --no-dev
 
 USER app
 
-CMD ["python", "-m", "xqueue_watcher", "-d", "/edx/etc/xqueue_watcher"]
+CMD ["xqueue-watcher", "-d", "/edx/etc/xqueue_watcher"]
 
 FROM base AS edx.org
 USER root
-RUN pip install --no-cache-dir newrelic
+RUN uv sync --frozen --extra production
 USER app
-CMD ["newrelic-admin", "run-program", "python", "-m", "xqueue_watcher", "-d", "/edx/etc/xqueue_watcher"]
+CMD ["newrelic-admin", "run-program", "xqueue-watcher", "-d", "/edx/etc/xqueue_watcher"]

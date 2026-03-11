@@ -2,7 +2,6 @@
 Implementation of a grader compatible with XServer
 """
 import html
-import sys
 import time
 import json
 from pathlib import Path

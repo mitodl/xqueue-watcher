@@ -10,11 +10,9 @@ No AppArmor or elevated host privileges are required.
 """
 
 import importlib
+import importlib.util
 import json
-import logging
-import os
 import random
-import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -27,9 +25,6 @@ from grader_support.graderutil import LANGUAGE
 _BACKEND_KUBERNETES = "kubernetes"
 _BACKEND_DOCKER = "docker"
 _SUPPORTED_BACKENDS = (_BACKEND_KUBERNETES, _BACKEND_DOCKER)
-
-# Label applied to all grading Jobs so they can be bulk-cleaned up if needed.
-_JOB_LABEL = "app.kubernetes.io/component=xqueue-grader"
 
 
 def _truncate(out):
@@ -171,6 +166,10 @@ class ContainerGrader(Grader):
                             run_as_non_root=True,
                             run_as_user=1000,
                         ),
+                        # Grader scripts are baked into the course-specific image
+                        # (no volume mount required).  The image extends
+                        # grader_support/Dockerfile.base and includes the grader
+                        # files at the path referenced by grader_abs.
                         containers=[
                             k8s_client.V1Container(
                                 name="grader",
@@ -198,7 +197,22 @@ class ContainerGrader(Grader):
                                     read_only_root_filesystem=True,
                                     capabilities=k8s_client.V1Capabilities(drop=["ALL"]),
                                 ),
+                                volume_mounts=[
+                                    k8s_client.V1VolumeMount(
+                                        name="tmp",
+                                        mount_path="/tmp",
+                                    ),
+                                ],
                             )
+                        ],
+                        volumes=[
+                            # emptyDir at /tmp is required because read_only_root_filesystem=True
+                            # prevents writes to the root FS; the entrypoint writes the student
+                            # submission to /tmp/submission.py before executing it.
+                            k8s_client.V1Volume(
+                                name="tmp",
+                                empty_dir=k8s_client.V1EmptyDirVolumeSource(),
+                            ),
                         ],
                     )
                 ),
@@ -271,8 +285,10 @@ class ContainerGrader(Grader):
             try:
                 exit_info = container.wait(timeout=self.timeout)
                 if exit_info.get("StatusCode", 0) != 0:
+                    stderr = container.logs(stdout=False, stderr=True)
                     raise RuntimeError(
-                        f"Grading container exited with non-zero status: {exit_info}"
+                        f"Grading container exited with non-zero status: {exit_info}. "
+                        f"stderr: {stderr[:2000] if stderr else ''}"
                     )
                 result = container.logs(stdout=True, stderr=False)
             finally:
@@ -318,8 +334,9 @@ class ContainerGrader(Grader):
 
         # Load the grader module to access its test definitions and preprocessors.
         # The module runs outside the sandbox (trusted code).
-        sf_loader = importlib.machinery.SourceFileLoader("grader_module", str(grader_path))
-        grader_module = sf_loader.load_module()
+        spec = importlib.util.spec_from_file_location("grader_module", str(grader_path))
+        grader_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(grader_module)
         grader = grader_module.grader
 
         errors = grader.input_errors(submission)

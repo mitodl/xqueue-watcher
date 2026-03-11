@@ -30,6 +30,7 @@ xqueue-watcher = "xqueue_watcher.manager:main"
 [dependency-groups]
 dev = [
     "coverage",
+    "edx-codejail",
     "mock",
     "pytest-cov",
 ]

@@ -11,19 +11,19 @@ help:
 @echo ''
 
 requirements:
-uv sync
+	uv sync
 
 test: requirements
-uv run pytest --cov=xqueue_watcher --cov-report=xml tests
+	uv run pytest --cov=xqueue_watcher --cov-report=xml tests
 
 docker-build:
-docker build -t xqueue-watcher:local .
-docker build -t grader-base:local -f grader_support/Dockerfile.base .
+	docker build -t xqueue-watcher:local .
+	docker build -t grader-base:local -f grader_support/Dockerfile.base .
 
 local-run:
-docker compose up
+	docker compose up
 
 clean:
-find . -name '*.pyc' -delete
+	find . -name '*.pyc' -delete
 
 .PHONY: help requirements test docker-build local-run clean

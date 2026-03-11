@@ -8,6 +8,7 @@ import codecs
 import os
 import sys
 import importlib
+import importlib.util
 import json
 import random
 import gettext
@@ -123,8 +124,9 @@ class JailedGrader(Grader):
         # Import the grader, straight from the original file.  (It probably isn't in
         # sys.path, and we may be in a long running gunicorn process, so we don't
         # want to add stuff to sys.path either.)
-        sf_loader = importlib.machinery.SourceFileLoader("grader_module", str(grader_path))
-        grader_module = sf_loader.load_module()
+        spec = importlib.util.spec_from_file_location("grader_module", str(grader_path))
+        grader_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(grader_module)
         grader = grader_module.grader
 
         # Preprocess for grader-specified errors

@@ -592,6 +592,7 @@ production = [
 [package.dev-dependencies]
 dev = [
     { name = "coverage" },
+    { name = "edx-codejail" },
     { name = "mock" },
     { name = "pytest-cov" },
 ]
@@ -610,6 +611,7 @@ provides-extras = ["codejail", "production"]
 [package.metadata.requires-dev]
 dev = [
     { name = "coverage" },
+    { name = "edx-codejail" },
     { name = "mock" },
     { name = "pytest-cov" },
 ]

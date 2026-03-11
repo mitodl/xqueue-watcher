@@ -28,8 +28,10 @@ def main():
     grader_name, submission_name, seed = sys.argv[1], sys.argv[2], sys.argv[3]
     code = os.environ.get("SUBMISSION_CODE", "")
 
-    # Write the submission to a temp file in /tmp (always writable even with
-    # read_only_root_filesystem=true, because /tmp is a separate tmpfs).
+    # Write the submission to /tmp, which must be writable. When running under
+    # Kubernetes with read_only_root_filesystem=True, ensure an emptyDir volume
+    # is mounted at /tmp in the Job spec — the root filesystem is read-only but
+    # emptyDir mounts are not. For Docker (local dev), /tmp is writable by default.
     with tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".py",

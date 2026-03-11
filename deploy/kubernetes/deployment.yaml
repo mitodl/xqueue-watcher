@@ -35,7 +35,7 @@ spec:
         - name: xqueue-watcher
           image: registry.example.com/xqueue-watcher:latest
           imagePullPolicy: Always
-          command: ["python", "-m", "xqueue_watcher", "-d", "/etc/xqueue-watcher"]
+          command: ["xqueue-watcher", "-d", "/etc/xqueue-watcher"]
 
           env:
             # NEW_RELIC_LICENSE_KEY injected from secret if using newrelic extra
@@ -91,6 +91,8 @@ spec:
               - key: logging.json
                 path: logging.json
         - name: queue-configs
+          # Queue-specific configs live in a separate ConfigMap so course teams
+          # can update them independently of the main watcher config.
           # Replace with a Secret if the configs contain credentials.
           # In practice, AUTH credentials should come from a Secret and be
           # mounted separately or passed as environment variables.

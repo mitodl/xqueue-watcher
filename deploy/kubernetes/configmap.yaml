@@ -63,3 +63,41 @@ data:
         ]
       }
     }
+---
+# Queue-specific configurations: one JSON file per course queue.
+# Operators replace or extend this with real queue names, server URLs,
+# and grader images.  AUTH credentials should be injected from a Secret
+# (e.g., via Vault Secrets Operator) rather than stored in this ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xqueue-watcher-queue-configs
+  namespace: xqueue-watcher
+  labels:
+    app.kubernetes.io/name: xqueue-watcher
+    app.kubernetes.io/component: queue-config
+data:
+  # Replace with your actual queue configs.  Each key becomes a file in
+  # /etc/xqueue-watcher/conf.d/ and must end in .json to be picked up.
+  example-queue.json: |
+    {
+      "my-course-queue": {
+        "SERVER": "http://xqueue:18040",
+        "CONNECTIONS": 2,
+        "AUTH": ["xqueue_user", "xqueue_pass"],
+        "HANDLERS": [
+          {
+            "HANDLER": "xqueue_watcher.containergrader.ContainerGrader",
+            "KWARGS": {
+              "grader_root": "/graders/my-course/",
+              "image": "registry.example.com/my-course-grader:latest",
+              "backend": "kubernetes",
+              "namespace": "xqueue-watcher",
+              "cpu_limit": "500m",
+              "memory_limit": "256Mi",
+              "timeout": 20
+            }
+          }
+        ]
+      }
+    }

@@ -9,8 +9,6 @@ This is the recommended replacement for JailedGrader on Kubernetes deployments.
 No AppArmor or elevated host privileges are required.
 """
 
-import importlib
-import importlib.util
 import json
 import random
 import time
@@ -18,8 +16,6 @@ import uuid
 from pathlib import Path
 
 from .grader import Grader
-from grader_support.gradelib import EndTest
-from grader_support.graderutil import LANGUAGE
 
 
 _BACKEND_KUBERNETES = "kubernetes"
@@ -27,28 +23,22 @@ _BACKEND_DOCKER = "docker"
 _SUPPORTED_BACKENDS = (_BACKEND_KUBERNETES, _BACKEND_DOCKER)
 
 
-def _truncate(out):
-    TOO_LONG = 5000
-    if len(out) > TOO_LONG:
-        out = out[:TOO_LONG] + "...OUTPUT TRUNCATED"
-    return out
-
-
-def _prepend_coding(code):
-    return "# coding: utf8\n" + code
-
-
 class ContainerGrader(Grader):
     """
     Grades student submissions by running them inside an isolated container.
 
+    The grader scripts and staff answer are baked into the course-specific grader
+    image.  The container runs the complete grading pipeline (preprocessing, running
+    both the staff answer and the student submission, comparing results) and returns
+    a JSON grade result.  The watcher pod does not need local access to grader files.
+
     Configuration (passed as KWARGS in the conf.d JSON handler config):
 
-      grader_root   - Path to the directory containing grader scripts.
-                      Must be accessible inside the container at the same path,
-                      either via a PVC (Kubernetes) or a bind mount (Docker).
+      grader_root   - Path to the grader directory inside the container image.
+                      For the Docker backend this is bind-mounted from the host;
+                      for Kubernetes the scripts are baked into the image.
       image         - Docker image to run. Should extend grader-base and include
-                      all course-specific dependencies.
+                      all course-specific grader scripts and dependencies.
       backend       - "kubernetes" (default) or "docker".
       namespace     - Kubernetes namespace to create Jobs in (default: "default").
       cpu_limit     - CPU limit for the grading container (default: "500m").
@@ -83,21 +73,39 @@ class ContainerGrader(Grader):
     # Internal: container execution
     # ------------------------------------------------------------------
 
-    def _run(self, grader_path, code, seed):
+    def _run(self, grader_path, code, seed, grader_config=None):
         """
-        Invoke the grader_support runner inside a container.
+        Run the complete grading pipeline inside a container.
 
-        Returns the raw stdout bytes from the container (JSON from run.py).
+        The container entrypoint (grader_support.entrypoint) handles:
+          - Loading the grader module (baked into the image)
+          - Preprocessing both staff answer and student submission
+          - Running both through grader_support.run
+          - Comparing results and returning the final grade JSON
+
+        Returns the raw stdout bytes (JSON grade result).
         Raises RuntimeError on timeout or non-zero exit.
         """
+        # Warn on large submissions: K8s env vars contribute to the Pod object
+        # stored in etcd (limit ~1.5 MB total); very large submissions may cause
+        # job creation to fail.  Submissions > 32 KB are unusual for course work.
+        code_bytes = len(code.encode("utf-8"))
+        if code_bytes > 32 * 1024:
+            self.log.warning(
+                "Submission code is large (%d bytes). Very large submissions may "
+                "exceed Kubernetes API object size limits when passed via env var.",
+                code_bytes,
+            )
+        if grader_config is None:
+            grader_config = {}
         if self.backend == _BACKEND_KUBERNETES:
-            return self._run_kubernetes(grader_path, code, seed)
-        return self._run_docker(grader_path, code, seed)
+            return self._run_kubernetes(grader_path, code, seed, grader_config)
+        return self._run_docker(grader_path, code, seed, grader_config)
 
-    def _run_kubernetes(self, grader_path, code, seed):
+    def _run_kubernetes(self, grader_path, code, seed, grader_config):
         """Create a Kubernetes Job, wait for it, collect stdout, delete it."""
         try:
-            from kubernetes import client as k8s_client, config as k8s_config, watch as k8s_watch
+            from kubernetes import client as k8s_client, config as k8s_config
         except ImportError:
             raise RuntimeError(
                 "The 'kubernetes' package is required for the kubernetes backend. "
@@ -113,7 +121,7 @@ class ContainerGrader(Grader):
         batch_v1 = k8s_client.BatchV1Api()
         core_v1 = k8s_client.CoreV1Api()
 
-        job_manifest = self._build_k8s_job(job_name, grader_path, code, seed)
+        job_manifest = self._build_k8s_job(job_name, grader_path, code, seed, grader_config)
 
         try:
             batch_v1.create_namespaced_job(namespace=self.namespace, body=job_manifest)
@@ -133,16 +141,17 @@ class ContainerGrader(Grader):
             except Exception:
                 self.log.warning("Failed to delete Job %s", job_name, exc_info=True)
 
-    def _build_k8s_job(self, job_name, grader_path, code, seed):
-        """Return a kubernetes Job manifest dict for the given grading run."""
+    def _build_k8s_job(self, job_name, grader_path, code, seed, grader_config=None):
+        """Return a kubernetes Job manifest for the given grading run."""
         from kubernetes import client as k8s_client
 
-        # Pass the absolute in-container path to the grader file.  The
-        # entrypoint handles absolute paths by adding the parent directory to
-        # sys.path before importing the module, so Python can find the file.
-        # working_dir must stay at /grader (the WORKDIR of the base image)
-        # so that `python -m grader_support.entrypoint` can locate the
-        # grader_support package.
+        if grader_config is None:
+            grader_config = {}
+
+        # The entrypoint takes: GRADER_FILE SEED
+        # The grader scripts are baked into the course-specific image at grader_path.
+        # working_dir must stay at /grader (the WORKDIR of the base image) so that
+        # `python -m grader_support.entrypoint` can locate the grader_support package.
         grader_abs = str(grader_path)
 
         return k8s_client.V1Job(
@@ -174,12 +183,21 @@ class ContainerGrader(Grader):
                             k8s_client.V1Container(
                                 name="grader",
                                 image=self.image,
-                                args=[grader_abs, "submission.py", str(seed)],
+                                # entrypoint signature: GRADER_FILE SEED
+                                args=[grader_abs, str(seed)],
                                 working_dir="/grader",
                                 env=[
                                     k8s_client.V1EnvVar(
                                         name="SUBMISSION_CODE",
                                         value=code,
+                                    ),
+                                    k8s_client.V1EnvVar(
+                                        name="GRADER_LANGUAGE",
+                                        value=grader_config.get("lang", "en"),
+                                    ),
+                                    k8s_client.V1EnvVar(
+                                        name="HIDE_OUTPUT",
+                                        value="1" if grader_config.get("hide_output") else "0",
                                     ),
                                 ],
                                 resources=k8s_client.V1ResourceRequirements(
@@ -245,7 +263,7 @@ class ContainerGrader(Grader):
         log = core_v1.read_namespaced_pod_log(name=pod_name, namespace=self.namespace)
         return log.encode("utf-8")
 
-    def _run_docker(self, grader_path, code, seed):
+    def _run_docker(self, grader_path, code, seed, grader_config=None):
         """Run a local Docker container and return stdout bytes."""
         try:
             import docker as docker_sdk
@@ -255,13 +273,21 @@ class ContainerGrader(Grader):
                 "Install it with: uv add docker"
             )
 
+        if grader_config is None:
+            grader_config = {}
+
         grader_dir = str(Path(grader_path).parent.resolve())
         grader_rel = str(Path(grader_path).name)
         # Mount the problem directory at /graders/ (not /grader/ which would
         # overwrite the base image's grader_support package).  Pass the grader
-        # as an absolute in-container path so the entrypoint can add its parent
-        # directory to sys.path before importing.
+        # as an absolute in-container path.
         container_grader_path = f"/graders/{grader_rel}"
+
+        env = {
+            "SUBMISSION_CODE": code,
+            "GRADER_LANGUAGE": grader_config.get("lang", "en"),
+            "HIDE_OUTPUT": "1" if grader_config.get("hide_output") else "0",
+        }
 
         client = docker_sdk.from_env()
         try:
@@ -270,9 +296,10 @@ class ContainerGrader(Grader):
             # lets us call container.wait(timeout=...) to cap execution time.
             container = client.containers.run(
                 image=self.image,
-                command=[container_grader_path, "submission.py", str(seed)],
+                # entrypoint signature: GRADER_FILE SEED
+                command=[container_grader_path, str(seed)],
                 working_dir="/grader",
-                environment={"SUBMISSION_CODE": code},
+                environment=env,
                 volumes={grader_dir: {"bind": "/graders", "mode": "ro"}},
                 mem_limit=self.memory_limit,
                 nano_cpus=int(_parse_cpu_millis(self.cpu_limit) * 1_000_000),
@@ -291,6 +318,15 @@ class ContainerGrader(Grader):
                         f"stderr: {stderr[:2000] if stderr else ''}"
                     )
                 result = container.logs(stdout=True, stderr=False)
+            except Exception as exc:
+                # Catch ReadTimeout (requests.exceptions.ReadTimeout) from container.wait()
+                # and any other unexpected error, converting to a clear RuntimeError.
+                exc_name = type(exc).__name__
+                if "Timeout" in exc_name or "timeout" in str(exc).lower():
+                    raise RuntimeError(
+                        f"Grading container timed out after {self.timeout}s."
+                    ) from exc
+                raise
             finally:
                 container.remove(force=True)
         except docker_sdk.errors.ContainerError as exc:
@@ -301,13 +337,22 @@ class ContainerGrader(Grader):
         return result if isinstance(result, bytes) else result.encode("utf-8")
 
     # ------------------------------------------------------------------
-    # Public grading interface (mirrors JailedGrader.grade)
+    # Public grading interface
     # ------------------------------------------------------------------
 
     def grade(self, grader_path, grader_config, submission):
-        import gettext
-        import sys
+        """
+        Grade a student submission by running the full pipeline inside a container.
 
+        The container (grader_support.entrypoint) handles all grading steps:
+          - Loading the grader module (baked into the image)
+          - Validating the submission format
+          - Preprocessing and running the staff answer and student submission
+          - Comparing results test-by-test
+          - Returning the final grade as JSON
+
+        Returns a dict with keys: correct, score, errors, tests.
+        """
         if not isinstance(submission, str):
             self.log.warning("Submission is NOT unicode")
 
@@ -324,148 +369,22 @@ class ContainerGrader(Grader):
             self.log.debug("Skipping the grader.")
             return results
 
-        lang = grader_config.get("lang", LANGUAGE)
-        locale_dir = self.grader_root / "conf" / "locale"
-        if locale_dir.exists():
-            trans = gettext.translation(
-                "graders", localedir=str(locale_dir), fallback=True, languages=[lang]
-            )
-            trans.install(names=None)
-
-        # Load the grader module to access its test definitions and preprocessors.
-        # The module runs outside the sandbox (trusted code).
-        spec = importlib.util.spec_from_file_location("grader_module", str(grader_path))
-        grader_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(grader_module)
-        grader = grader_module.grader
-
-        errors = grader.input_errors(submission)
-        if errors:
-            results["errors"].extend(errors)
-            return results
-
-        answer_path = Path(grader_path).parent / "answer.py"
-        with open(answer_path, "rb") as f:
-            answer = f.read().decode("utf-8")
-
-        processed_answer = _prepend_coding(grader.preprocess(answer))
-        processed_submission = _prepend_coding(grader.preprocess(submission))
-
         seed = str(random.randint(0, 20000))
 
-        # Run the staff answer inside the container.
-        expected_ok = False
-        expected_outputs = None
-        expected_exc = None
         try:
-            expected_outputs = self._run(grader_path, processed_answer, seed)
-            if expected_outputs:
-                expected = json.loads(expected_outputs.decode("utf-8"))
-                expected_ok = True
+            output = self._run(grader_path, submission, seed, grader_config)
+            grade_result = json.loads(output.decode("utf-8"))
+            return grade_result
         except Exception:
-            expected_exc = sys.exc_info()
-        else:
-            if expected_ok:
-                if (
-                    expected["exceptions"]
-                    or expected["grader"]["status"] != "ok"
-                    or expected["submission"]["status"] != "ok"
-                ):
-                    expected_ok = False
-
-        if not expected_ok:
+            self.log.exception(
+                "Grading container failed. grader = %s", grader_path
+            )
             results["errors"].append(
-                "There was a problem running the staff solution (Staff debug)."
-            )
-            self.log.error(
-                "Couldn't run staff solution. grader = %s, output: %r",
-                grader_path,
-                expected_outputs,
-                exc_info=expected_exc,
-            )
-            return results
-
-        # Run the student submission inside the container.
-        actual_ok = False
-        actual_outputs = None
-        actual_exc = None
-        try:
-            actual_outputs = self._run(grader_path, processed_submission, seed)
-            if actual_outputs:
-                actual = json.loads(actual_outputs.decode("utf-8"))
-                actual_ok = True
-            else:
-                results["errors"].append(
-                    "There was a problem running your solution (Staff debug)."
-                )
-        except Exception:
-            actual_exc = sys.exc_info()
-        else:
-            if actual_ok and actual["grader"]["status"] == "ok":
-                if actual["submission"]["status"] != "ok":
-                    shown_error = actual["submission"]["exception"] or (
-                        "There was an error thrown while running your solution."
-                    )
-                    results["errors"].append(shown_error)
-            else:
-                actual_ok = False
-
-        if not actual_ok:
-            results["errors"].append(
-                "We couldn't run your solution (Staff debug)."
-            )
-            self.log.error(
-                "Couldn't run student solution. grader = %s, output: %r",
-                grader_path,
-                actual_outputs,
-                exc_info=actual_exc,
-            )
-            return results
-
-        corrects = []
-        if not results["errors"]:
-            expected_results = expected["results"]
-            actual_results = actual["results"]
-            if len(expected_results) != len(actual_results):
-                results["errors"].append(
-                    "Something went wrong: different numbers of tests ran for "
-                    "your code and for our reference code."
-                )
-                return results
-
-            for test, exp, act in zip(grader.tests(), expected_results, actual_results):
-                exp_short_desc, exp_long_desc, exp_output = exp
-                act_short_desc, act_long_desc, act_output = act
-                if exp_short_desc != act_short_desc:
-                    results["errors"].append(
-                        "Something went wrong: tests don't match up."
-                    )
-                    return results
-                act_output = _truncate(act_output)
-                try:
-                    correct = test.compare_results(exp_output, act_output)
-                except EndTest as e:
-                    if e is not None:
-                        act_output += "\n"
-                        act_output += f"*** ERROR: {e} ***"
-                    correct = False
-                corrects.append(correct)
-                if not grader_config.get("hide_output", False):
-                    results["tests"].append(
-                        (exp_short_desc, exp_long_desc, correct, exp_output, act_output)
-                    )
-
-        n = len(corrects)
-        results["correct"] = all(corrects) and n > 0
-        results["score"] = float(sum(corrects)) / n if n > 0 else 0
-
-        if n == 0 and not results["errors"]:
-            results["errors"] = [
-                "There was a problem while running your code (Staff debug). "
+                "There was a problem running your code (Staff debug). "
                 "Please contact the course staff for assistance."
-            ]
+            )
+            return results
 
-        return results
 
 
 def _parse_cpu_millis(cpu_str):

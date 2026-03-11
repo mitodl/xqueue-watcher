@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "xqueue-watcher"
+version = "0.3"
+description = "XQueue Pull Grader"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE.TXT" }
+dependencies = [
+    "dogstatsd-python",
+    "docker>=7.0.0",
+    "kubernetes>=29.0.0",
+    "path-py",
+    "requests",
+]
+
+[project.optional-dependencies]
+production = [
+    "newrelic",
+]
+
+[project.scripts]
+xqueue-watcher = "xqueue_watcher.manager:main"
+
+[dependency-groups]
+dev = [
+    "coverage",
+    "mock",
+    "pytest-cov",
+]
+
+[tool.uv]
+package = true
+default-groups = ["dev"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["xqueue_watcher", "grader_support"]

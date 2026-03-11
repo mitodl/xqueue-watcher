@@ -21,6 +21,15 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY . /edx/app/xqueue_watcher
 RUN uv sync --frozen --no-dev
+# Note: the `codejail` optional extra (edx-codejail) is intentionally omitted
+# from this image.  In the Kubernetes deployment, student code runs inside an
+# isolated container (ContainerGrader) — the container boundary provides the
+# sandbox via Linux namespaces, cgroups, capability dropping, network isolation,
+# and a read-only filesystem.  codejail (AppArmor + OS-level user-switching)
+# requires host-level AppArmor configuration that is unavailable inside
+# Kubernetes pods and adds no meaningful security benefit on top of container
+# isolation.  Install the `codejail` extra only when running the legacy
+# JailedGrader on a bare-metal or VM host with AppArmor configured.
 
 USER app
 

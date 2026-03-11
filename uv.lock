@@ -227,6 +227,18 @@ wheels = [
 ]
 
 [[package]]
+name = "edx-codejail"
+version = "4.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/94/4b/d94b6f4c3b8ac1ddb9a6badd4bd03d8337265ef207406dffc91f671db695/edx_codejail-4.1.0.tar.gz", hash = "sha256:fdccde57a2dc8c81ebf80c4f9d317cbf1ae2f68c7f598c2f17289b85b7c0ccdb", size = 29888, upload-time = "2025-11-07T15:30:16.156Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/82/8077069f7161d70257abd40ff9eddcbf3c1e4fbe66e23c933bf9a3c6ccb0/edx_codejail-4.1.0-py3-none-any.whl", hash = "sha256:0b2779131136117929bb8e58c302062dc3e98ee6526f3eb6936b1738daa7a14c", size = 25463, upload-time = "2025-11-07T15:30:14.747Z" },
+]
+
+[[package]]
 name = "idna"
 version = "3.11"
 source = { registry = "https://pypi.org/simple" }
@@ -570,6 +582,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+codejail = [
+    { name = "edx-codejail" },
+]
 production = [
     { name = "newrelic" },
 ]
@@ -585,11 +600,12 @@ dev = [
 requires-dist = [
     { name = "docker", specifier = ">=7.0.0" },
     { name = "dogstatsd-python" },
+    { name = "edx-codejail", marker = "extra == 'codejail'" },
     { name = "kubernetes", specifier = ">=29.0.0" },
     { name = "newrelic", marker = "extra == 'production'" },
     { name = "requests" },
 ]
-provides-extras = ["production"]
+provides-extras = ["codejail", "production"]
 
 [package.metadata.requires-dev]
 dev = [

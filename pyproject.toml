@@ -17,6 +17,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+codejail = [
+    "edx-codejail",
+]
 production = [
     "newrelic",
 ]

@@ -11,7 +11,7 @@ import importlib
 import json
 import random
 import gettext
-from path import Path
+from pathlib import Path
 
 try:
     import codejail
@@ -28,7 +28,7 @@ from .grader import Grader
 TIMEOUT = 1
 
 SUPPORT_FILES = [
-    Path(grader_support.__file__).dirname(),
+    Path(grader_support.__file__).parent,
 ]
 
 
@@ -82,7 +82,7 @@ class JailedGrader(Grader):
         if self.locale_dir.exists():
             files.append(self.locale_dir)
         extra_files = [('submission.py', thecode.encode('utf-8'))]
-        argv = ["-B", "-m", "grader_support.run", Path(grader_path).basename(), 'submission.py', seed]
+        argv = ["-B", "-m", "grader_support.run", Path(grader_path).name, 'submission.py', seed]
         r = codejail.jail_code.jail_code(self.codejail_python, files=files, extra_files=extra_files, argv=argv)
         return r
 
@@ -116,7 +116,7 @@ class JailedGrader(Grader):
 
         self._enable_i18n(grader_config.get("lang", LANGUAGE))
 
-        answer_path = Path(grader_path).dirname() / 'answer.py'
+        answer_path = Path(grader_path).parent / 'answer.py'
         with open(answer_path, 'rb') as f:
             answer = f.read().decode('utf-8')
 
@@ -280,8 +280,8 @@ def main(args):     # pragma: no cover
         submission = f.read().decode('utf-8')
 
     grader_config = {"lang": "eo"}
-    grader_path = Path(grader_path).absolute()
-    g = JailedGrader(grader_root=grader_path.dirname().parent.parent)
+    grader_path = Path(grader_path).resolve()
+    g = JailedGrader(grader_root=grader_path.parent.parent.parent)
     pprint(g.grade(grader_path, grader_config, submission))
 
 

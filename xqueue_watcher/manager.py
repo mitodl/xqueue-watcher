@@ -5,7 +5,7 @@ import inspect
 import json
 import logging
 import logging.config
-from path import Path
+from pathlib import Path
 import signal
 import sys
 import time
@@ -97,7 +97,7 @@ class Manager:
         self.manager_config = get_manager_config_values(app_config_path)
 
         confd = directory / 'conf.d'
-        for watcher in confd.files('*.json'):
+        for watcher in sorted(confd.glob('*.json')):
             with open(watcher) as queue_config:
                 self.configure(json.load(queue_config))
 

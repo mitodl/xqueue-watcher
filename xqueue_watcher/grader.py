@@ -5,7 +5,7 @@ import html
 import sys
 import time
 import json
-from path import Path
+from pathlib import Path
 import logging
 import multiprocessing
 from statsd import statsd
@@ -130,14 +130,10 @@ class Grader:
 
             self.log.debug(f"Processing submission, grader payload: {payload}")
             relative_grader_path = grader_config['grader']
-            grader_path = (self.grader_root / relative_grader_path).absolute()
-            # Guard against path traversal: ensure the resolved path stays
-            # within grader_root.  Convert to pathlib for relative_to().
-            import pathlib
+            grader_path = (self.grader_root / relative_grader_path).resolve()
+            # Guard against path traversal: ensure the resolved path stays within grader_root.
             try:
-                pathlib.Path(str(grader_path)).relative_to(
-                    pathlib.Path(str(self.grader_root)).resolve()
-                )
+                grader_path.relative_to(self.grader_root.resolve())
             except ValueError as exc:
                 raise ValueError(
                     f"Grader path {relative_grader_path!r} resolves outside "

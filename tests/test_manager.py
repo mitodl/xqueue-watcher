@@ -1,5 +1,5 @@
 import unittest
-from path import Path
+from pathlib import Path
 import json
 from unittest.mock import Mock
 import time
@@ -179,6 +179,6 @@ class ManagerTests(unittest.TestCase):
         self.assertIn('required', err_msg)
         sys.stderr = stderr
 
-        mydir = Path(__file__).dirname()
-        args = ['-d', mydir / "fixtures/config"]
+        mydir = Path(__file__).parent
+        args = ['-d', str(mydir / "fixtures/config")]
         self.assertEqual(manager.main(args), 0)

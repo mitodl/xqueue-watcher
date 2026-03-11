@@ -17,7 +17,7 @@ import random
 import tempfile
 import time
 import uuid
-from path import Path
+from pathlib import Path
 
 from .grader import Grader
 from grader_support.gradelib import EndTest
@@ -241,8 +241,8 @@ class ContainerGrader(Grader):
                 "Install it with: uv add docker"
             )
 
-        grader_dir = str(Path(grader_path).dirname().absolute())
-        grader_rel = str(Path(grader_path).basename())
+        grader_dir = str(Path(grader_path).parent.resolve())
+        grader_rel = str(Path(grader_path).name)
         # Mount the problem directory at /graders/ (not /grader/ which would
         # overwrite the base image's grader_support package).  Pass the grader
         # as an absolute in-container path so the entrypoint can add its parent
@@ -327,7 +327,7 @@ class ContainerGrader(Grader):
             results["errors"].extend(errors)
             return results
 
-        answer_path = Path(grader_path).dirname() / "answer.py"
+        answer_path = Path(grader_path).parent / "answer.py"
         with open(answer_path, "rb") as f:
             answer = f.read().decode("utf-8")
 

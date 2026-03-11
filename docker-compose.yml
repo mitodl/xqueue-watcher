@@ -1,0 +1,47 @@
+services:
+  # xqueue: the submission queue that xqueue-watcher polls.
+  # Uses the official Open edX xqueue image.
+  xqueue:
+    image: openedx/xqueue:latest
+    ports:
+      - "18040:18040"
+    environment:
+      DJANGO_SETTINGS_MODULE: xqueue.settings.devstack
+      XQUEUE_DJANGO_SECRET_KEY: dev-secret-key
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:18040/xqueue/status/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # xqueue-watcher: polls xqueue and routes submissions to the grader.
+  xqueue-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      xqueue:
+        condition: service_healthy
+    volumes:
+      # Mount the local conf.d so you can edit queue configs without rebuilding.
+      - ./conf.d:/etc/xqueue-watcher/conf.d:ro
+      # Mount local grader scripts for rapid iteration.
+      - ./data:/graders:ro
+    environment:
+      # Use docker backend so grading containers run locally via the Docker socket.
+      GRADER_BACKEND: docker
+    # Give xqueue-watcher access to the Docker socket so it can spawn grader containers.
+    # Remove this if you don't need the docker backend locally.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: python -m xqueue_watcher -d /etc/xqueue-watcher
+
+  # sample-grader: an example grader image for local testing.
+  # Course teams replace this with their own image.
+  sample-grader:
+    build:
+      context: .
+      dockerfile: grader_support/Dockerfile.base
+    # This service is not started automatically — it exists so `docker compose build`
+    # builds the base image that course grader images extend.
+    profiles: ["build-only"]

@@ -5,10 +5,18 @@ import textwrap
 import unittest
 from path import Path
 
+import pytest
+
+try:
+    from codejail.jail_code import configure
+    HAS_CODEJAIL = True
+except ImportError:
+    HAS_CODEJAIL = False
+
 from xqueue_watcher.jailedgrader import JailedGrader
-from codejail.jail_code import configure
 
 
+@pytest.mark.skipif(not HAS_CODEJAIL, reason="codejail not installed")
 class JailedGraderTests(unittest.TestCase):
     def setUp(self):
         configure("python", sys.executable, user=getpass.getuser())

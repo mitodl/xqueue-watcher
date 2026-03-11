@@ -1,26 +1,30 @@
-FROM ubuntu:xenial as openedx
+FROM python:3.11-slim AS base
 
-RUN apt update && \
-  apt install -y git-core language-pack-en apparmor apparmor-utils python python-pip python-dev && \
-  pip install --upgrade pip setuptools && \
-  rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US:en \
+    LC_ALL=en_US.UTF-8
 
-RUN locale-gen en_US.UTF-8
-ENV LANG en_US.UTF-8
-ENV LANGUAGE en_US:en
-ENV LC_ALL en_US.UTF-8
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git-core && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m --shell /bin/false app
 
 WORKDIR /edx/app/xqueue_watcher
 COPY requirements /edx/app/xqueue_watcher/requirements
-RUN pip install -r requirements/production.txt
-
-CMD python -m xqueue_watcher -d /edx/etc/xqueue_watcher
-
-RUN useradd -m --shell /bin/false app
-USER app
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements/production.txt
 
 COPY . /edx/app/xqueue_watcher
 
-FROM openedx as edx.org
-RUN pip install newrelic
-CMD newrelic-admin run-program python -m xqueue_watcher -d /edx/etc/xqueue_watcher
+USER app
+
+CMD ["python", "-m", "xqueue_watcher", "-d", "/edx/etc/xqueue_watcher"]
+
+FROM base AS edx.org
+USER root
+RUN pip install --no-cache-dir newrelic
+USER app
+CMD ["newrelic-admin", "run-program", "python", "-m", "xqueue_watcher", "-d", "/edx/etc/xqueue_watcher"]

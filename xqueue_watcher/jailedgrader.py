@@ -1,5 +1,8 @@
 """
 An implementation of a grader that uses codejail to sandbox submission execution.
+
+NOTE: This grader requires codejail (an optional dependency) and an AppArmor-enabled
+host OS. For Kubernetes deployments, use ContainerGrader instead.
 """
 import codecs
 import os
@@ -9,9 +12,12 @@ import json
 import random
 import gettext
 from path import Path
-import six
 
-import codejail
+try:
+    import codejail
+    import codejail.jail_code
+except ImportError:
+    codejail = None
 
 from grader_support.gradelib import EndTest
 from grader_support.graderutil import LANGUAGE
@@ -21,21 +27,8 @@ from .grader import Grader
 
 TIMEOUT = 1
 
-def path_to_six():
-    """
-    Return the full path to six.py
-    """
-    if any(six.__file__.endswith(suffix) for suffix in ('.pyc', '.pyo')):
-        # __file__ points to the compiled bytecode in python 2
-        return Path(six.__file__[:-1])
-    else:
-        # __file__ points to the .py file in python 3
-        return Path(six.__file__)
-
-
 SUPPORT_FILES = [
     Path(grader_support.__file__).dirname(),
-    path_to_six(),
 ]
 
 
@@ -63,8 +56,16 @@ class JailedGrader(Grader):
     A grader implementation that uses codejail.
     Instantiate it with grader_root="path/to/graders"
     and optionally codejail_python="python name" (the name that you used to configure codejail)
+
+    NOTE: Requires codejail (optional dependency) and an AppArmor-enabled host.
+    For Kubernetes deployments, use ContainerGrader instead.
     """
     def __init__(self, *args, **kwargs):
+        if codejail is None:
+            raise RuntimeError(
+                "codejail is not installed. JailedGrader requires codejail and an "
+                "AppArmor-enabled host. For containerized deployments use ContainerGrader."
+            )
         self.codejail_python = kwargs.pop("codejail_python", "python")
         super().__init__(*args, **kwargs)
         self.locale_dir = self.grader_root / "conf" / "locale"
@@ -279,7 +280,7 @@ def main(args):     # pragma: no cover
         submission = f.read().decode('utf-8')
 
     grader_config = {"lang": "eo"}
-    grader_path = path(grader_path).abspath()
+    grader_path = Path(grader_path).absolute()
     g = JailedGrader(grader_root=grader_path.dirname().parent.parent)
     pprint(g.grade(grader_path, grader_config, submission))
 

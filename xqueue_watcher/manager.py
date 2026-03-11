@@ -10,7 +10,10 @@ import signal
 import sys
 import time
 
-from codejail import jail_code
+try:
+    from codejail import jail_code as _codejail_jail_code
+except ImportError:
+    _codejail_jail_code = None
 
 from .settings import get_manager_config_values, MANAGER_CONFIG_DEFAULTS
 
@@ -100,7 +103,7 @@ class Manager:
 
     def enable_codejail(self, codejail_config):
         """
-        Enable codejail for the process.
+        Enable codejail for the process (legacy AppArmor-based sandbox).
         codejail_config is a dict like this:
         {
             "name": "python",
@@ -114,13 +117,18 @@ class Manager:
         limits are optional
         user defaults to the current user
         """
+        if _codejail_jail_code is None:
+            raise RuntimeError(
+                "codejail is not installed. Cannot configure AppArmor-based sandboxing. "
+                "Use ContainerGrader for containerized deployments."
+            )
         name = codejail_config["name"]
         bin_path = codejail_config['bin_path']
         user = codejail_config.get('user', getpass.getuser())
-        jail_code.configure(name, bin_path, user=user)
+        _codejail_jail_code.configure(name, bin_path, user=user)
         limits = codejail_config.get("limits", {})
         for limit_name, value in limits.items():
-            jail_code.set_limit(limit_name, value)
+            _codejail_jail_code.set_limit(limit_name, value)
         self.log.info("configured codejail -> %s %s %s", name, bin_path, user)
         return name
 

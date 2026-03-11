@@ -2,7 +2,7 @@
 Implementation of a grader compatible with XServer
 """
 import html
-import os
+import sys
 import time
 import json
 from path import Path
@@ -130,7 +130,7 @@ class Grader:
 
             self.log.debug(f"Processing submission, grader payload: {payload}")
             relative_grader_path = grader_config['grader']
-            grader_path = os.path.abspath(self.grader_root / relative_grader_path)
+            grader_path = (self.grader_root / relative_grader_path).absolute()
             start = time.time()
             results = self.grade(grader_path, grader_config, student_response)
 

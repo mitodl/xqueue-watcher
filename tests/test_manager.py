@@ -90,8 +90,11 @@ class ManagerTests(unittest.TestCase):
             })
         self.assertTrue(codejail.jail_code.is_configured("other-python"))
 
-        # now we'll see if the codejail config is inherited in the handler subprocess
+        # Verify codejail config is visible to the grader running in the same process.
+        # (fork_per_item=False avoids relying on multiprocessing start-method-specific
+        # state inheritance, which varies between 'fork' and 'forkserver'.)
         handler_config = self.config['test1'].copy()
+        handler_config['HANDLERS'][0]['KWARGS'] = {'fork_per_item': False}
         client = self.m.client_from_config("test", handler_config)
         client.session = MockXQueueServer()
         client._handle_submission(json.dumps({

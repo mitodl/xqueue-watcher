@@ -47,6 +47,18 @@ def main():
     sys.path.insert(0, "/tmp")
     sys.path.insert(0, cwd)
 
+    # grader_name may be an absolute path (e.g. /graders/ps07/Robot/grade_Robot.py)
+    # when the containergrader passes the full in-container path.  In that case, add
+    # the grader's directory to sys.path and use only the basename as the module name
+    # so that __import__() can find it.
+    if os.path.isabs(grader_name):
+        grader_dir = os.path.dirname(grader_name)
+        grader_module = os.path.basename(grader_name)
+        if grader_dir not in sys.path:
+            sys.path.insert(0, grader_dir)
+    else:
+        grader_module = grader_name
+
     # Rename so the module name matches what run.py expects (submission_name
     # without the .py extension becomes the importable module name).
     import shutil
@@ -56,7 +68,7 @@ def main():
 
     seed_int = int(seed)
     output = _run_module.run(
-        grader_name[:-3] if grader_name.endswith(".py") else grader_name,
+        grader_module[:-3] if grader_module.endswith(".py") else grader_module,
         submission_name[:-3] if submission_name.endswith(".py") else submission_name,
         seed_int,
     )

@@ -142,8 +142,13 @@ class ContainerGrader(Grader):
         """Return a kubernetes Job manifest dict for the given grading run."""
         from kubernetes import client as k8s_client
 
-        grader_rel = str(Path(grader_path).basename())
-        grader_dir = str(Path(grader_path).dirname())
+        # Pass the absolute in-container path to the grader file.  The
+        # entrypoint handles absolute paths by adding the parent directory to
+        # sys.path before importing the module, so Python can find the file.
+        # working_dir must stay at /grader (the WORKDIR of the base image)
+        # so that `python -m grader_support.entrypoint` can locate the
+        # grader_support package.
+        grader_abs = str(grader_path)
 
         return k8s_client.V1Job(
             api_version="batch/v1",
@@ -170,8 +175,8 @@ class ContainerGrader(Grader):
                             k8s_client.V1Container(
                                 name="grader",
                                 image=self.image,
-                                args=[grader_rel, "submission.py", str(seed)],
-                                working_dir=grader_dir,
+                                args=[grader_abs, "submission.py", str(seed)],
+                                working_dir="/grader",
                                 env=[
                                     k8s_client.V1EnvVar(
                                         name="SUBMISSION_CODE",
@@ -238,15 +243,20 @@ class ContainerGrader(Grader):
 
         grader_dir = str(Path(grader_path).dirname().absolute())
         grader_rel = str(Path(grader_path).basename())
+        # Mount the problem directory at /graders/ (not /grader/ which would
+        # overwrite the base image's grader_support package).  Pass the grader
+        # as an absolute in-container path so the entrypoint can add its parent
+        # directory to sys.path before importing.
+        container_grader_path = f"/graders/{grader_rel}"
 
         client = docker_sdk.from_env()
         try:
             result = client.containers.run(
                 image=self.image,
-                command=[grader_rel, "submission.py", str(seed)],
+                command=[container_grader_path, "submission.py", str(seed)],
                 working_dir="/grader",
                 environment={"SUBMISSION_CODE": code},
-                volumes={grader_dir: {"bind": "/grader", "mode": "ro"}},
+                volumes={grader_dir: {"bind": "/graders", "mode": "ro"}},
                 mem_limit=self.memory_limit,
                 nano_cpus=int(_parse_cpu_millis(self.cpu_limit) * 1_000_000),
                 network_disabled=True,

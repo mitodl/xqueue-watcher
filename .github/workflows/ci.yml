@@ -29,10 +29,4 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Run Tests
-      run: uv run --python ${{ matrix.python-version }} pytest --cov=xqueue_watcher --cov-report=xml tests
-
-    - name: Run Coverage
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: true
+      run: uv run --python ${{ matrix.python-version }} pytest tests

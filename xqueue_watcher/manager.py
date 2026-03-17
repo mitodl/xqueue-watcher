@@ -16,6 +16,7 @@ except ImportError:
     _codejail_jail_code = None
 
 from .settings import get_manager_config_values, MANAGER_CONFIG_DEFAULTS
+from .metrics import configure_metrics
 
 
 class Manager:
@@ -92,6 +93,8 @@ class Manager:
         else:
             logging.basicConfig(level="DEBUG")
         self.log = logging.getLogger('xqueue_watcher.manager')
+
+        configure_metrics()
 
         app_config_path = directory / 'xqwatcher.json'
         self.manager_config = get_manager_config_values(app_config_path)

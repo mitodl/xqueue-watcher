@@ -35,7 +35,5 @@ USER app
 CMD ["xqueue-watcher", "-d", "/edx/etc/xqueue_watcher"]
 
 FROM base AS edx.org
-USER root
-RUN uv sync --frozen --extra production
 USER app
-CMD ["newrelic-admin", "run-program", "xqueue-watcher", "-d", "/edx/etc/xqueue_watcher"]
+CMD ["xqueue-watcher", "-d", "/edx/etc/xqueue_watcher"]

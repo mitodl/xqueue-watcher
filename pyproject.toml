@@ -10,18 +10,17 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE.TXT" }
 dependencies = [
-    "dogstatsd-python",
     "docker>=7.0.0",
     "kubernetes>=29.0.0",
+    "opentelemetry-api",
+    "opentelemetry-exporter-otlp-proto-http",
+    "opentelemetry-sdk",
     "requests",
 ]
 
 [project.optional-dependencies]
 codejail = [
     "edx-codejail",
-]
-production = [
-    "newrelic",
 ]
 
 [project.scripts]

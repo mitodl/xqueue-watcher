@@ -13,8 +13,6 @@ needed:
     Service name attached to every metric (default: ``xqueue-watcher``).
 ``OTEL_RESOURCE_ATTRIBUTES``
     Additional resource attributes as ``key=value,...`` pairs.
-``OTEL_METRIC_EXPORT_INTERVAL``
-    Export interval in milliseconds (SDK default: 60 000).
 """
 
 import os

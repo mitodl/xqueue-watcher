@@ -32,8 +32,8 @@ RUN uv sync --frozen --no-dev
 
 USER app
 
-CMD ["xqueue-watcher", "-d", "/edx/etc/xqueue_watcher"]
+CMD ["xqueue-watcher", "-d", "/etc/xqueue-watcher"]
 
 FROM base AS edx.org
 USER app
-CMD ["xqueue-watcher", "-d", "/edx/etc/xqueue_watcher"]
+CMD ["xqueue-watcher", "-d", "/etc/xqueue-watcher"]

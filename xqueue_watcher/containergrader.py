@@ -169,8 +169,15 @@ class ContainerGrader(Grader):
                 active_deadline_seconds=self.timeout,
                 ttl_seconds_after_finished=300,
                 template=k8s_client.V1PodTemplateSpec(
+                    metadata=k8s_client.V1ObjectMeta(
+                        labels={
+                            "app.kubernetes.io/component": "xqueue-grader",
+                            "app.kubernetes.io/managed-by": "xqueue-watcher",
+                        }
+                    ),
                     spec=k8s_client.V1PodSpec(
                         restart_policy="Never",
+                        automount_service_account_token=False,
                         security_context=k8s_client.V1PodSecurityContext(
                             run_as_non_root=True,
                             run_as_user=1000,
@@ -301,7 +308,7 @@ class ContainerGrader(Grader):
                 working_dir="/grader",
                 environment=env,
                 volumes={grader_dir: {"bind": "/graders", "mode": "ro"}},
-                mem_limit=self.memory_limit,
+                mem_limit=_parse_memory_bytes(self.memory_limit),
                 nano_cpus=int(_parse_cpu_millis(self.cpu_limit) * 1_000_000),
                 network_disabled=True,
                 read_only=True,
@@ -393,3 +400,27 @@ def _parse_cpu_millis(cpu_str):
     if cpu_str.endswith("m"):
         return float(cpu_str[:-1])
     return float(cpu_str) * 1000
+
+
+def _parse_memory_bytes(memory_str):
+    """Convert a Kubernetes/Docker memory string to bytes for the Docker API.
+
+    Handles IEC binary suffixes (Ki, Mi, Gi, Ti) and SI decimal suffixes
+    (K, M, G, T).  Plain integers are returned unchanged.
+
+    Examples:
+        "256Mi" -> 268435456
+        "1Gi"   -> 1073741824
+        "512M"  -> 512000000
+        "1024"  -> 1024
+    """
+    s = str(memory_str).strip()
+    iec = {"Ti": 1024**4, "Gi": 1024**3, "Mi": 1024**2, "Ki": 1024}
+    si  = {"T": 1000**4,  "G": 1000**3,  "M": 1000**2,  "K": 1000}
+    for suffix, factor in iec.items():
+        if s.endswith(suffix):
+            return int(float(s[: -len(suffix)]) * factor)
+    for suffix, factor in si.items():
+        if s.endswith(suffix):
+            return int(float(s[: -len(suffix)]) * factor)
+    return int(s)

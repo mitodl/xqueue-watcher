@@ -27,16 +27,11 @@ services:
       - ./conf.d:/etc/xqueue-watcher/conf.d:rw
       # Mount local grader scripts for rapid iteration.
       - ./data:/graders:rw
-    environment:
-      # Use docker backend so grading containers run locally via the Docker socket.
-      GRADER_BACKEND: docker
-    # Give xqueue-watcher access to the Docker socket so it can spawn grader containers.
-    # Remove this if you don't need the docker backend locally.
-    volumes:
+      # Give xqueue-watcher access to the Docker socket so it can spawn grader containers.
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: python -m xqueue_watcher -d /etc/xqueue-watcher
+    command: xqueue-watcher -d /etc/xqueue-watcher
 
   # sample-grader: an example grader image for local testing.
   # Course teams replace this with their own image.
@@ -44,6 +39,7 @@ services:
     build:
       context: .
       dockerfile: grader_support/Dockerfile.base
+    image: grader-base:local
     # This service is not started automatically — it exists so `docker compose build`
     # builds the base image that course grader images extend.
     profiles: ["build-only"]

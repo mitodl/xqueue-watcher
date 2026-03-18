@@ -3,7 +3,8 @@ FROM python:3.11-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+    LC_ALL=C.UTF-8 \
+    PATH="/edx/app/xqueue_watcher/.venv/bin:$PATH"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git-core && \

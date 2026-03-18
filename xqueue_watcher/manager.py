@@ -17,6 +17,7 @@ except ImportError:
 
 from .settings import get_manager_config_values, MANAGER_CONFIG_DEFAULTS
 from .metrics import configure_metrics
+from .env_settings import configure_logging
 
 
 class Manager:
@@ -91,7 +92,7 @@ class Manager:
             with open(log_config) as config:
                 logging.config.dictConfig(json.load(config))
         else:
-            logging.basicConfig(level="DEBUG")
+            configure_logging()
         self.log = logging.getLogger('xqueue_watcher.manager')
 
         configure_metrics()

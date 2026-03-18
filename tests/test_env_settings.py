@@ -1,8 +1,47 @@
+import logging
 import unittest
 from unittest.mock import patch
 
-from xqueue_watcher.env_settings import get_manager_config_from_env
+from xqueue_watcher.env_settings import configure_logging, get_manager_config_from_env
 from xqueue_watcher.settings import MANAGER_CONFIG_DEFAULTS
+
+
+class TestConfigureLogging(unittest.TestCase):
+    def tearDown(self):
+        # Reset root logger after each test so handlers don't accumulate.
+        root = logging.getLogger()
+        root.handlers.clear()
+        root.setLevel(logging.WARNING)
+
+    def test_default_level_is_info(self):
+        with patch.dict("os.environ", {}, clear=False):
+            configure_logging()
+        self.assertEqual(logging.getLogger().level, logging.INFO)
+
+    def test_custom_level_from_env(self):
+        with patch.dict("os.environ", {"XQWATCHER_LOG_LEVEL": "DEBUG"}):
+            configure_logging()
+        self.assertEqual(logging.getLogger().level, logging.DEBUG)
+
+    def test_stdout_handler_installed(self):
+        import sys
+        with patch.dict("os.environ", {}, clear=False):
+            configure_logging()
+        handlers = logging.getLogger().handlers
+        self.assertEqual(len(handlers), 1)
+        self.assertIsInstance(handlers[0], logging.StreamHandler)
+        self.assertIs(handlers[0].stream, sys.stdout)
+
+    def test_requests_logger_set_to_warning(self):
+        with patch.dict("os.environ", {"XQWATCHER_LOG_LEVEL": "DEBUG"}):
+            configure_logging()
+        self.assertEqual(logging.getLogger("requests").level, logging.WARNING)
+        self.assertEqual(logging.getLogger("urllib3").level, logging.WARNING)
+
+    def test_invalid_level_raises(self):
+        with patch.dict("os.environ", {"XQWATCHER_LOG_LEVEL": "NOTLEVEL"}):
+            with self.assertRaises(ValueError):
+                configure_logging()
 
 
 class TestGetManagerConfigFromEnv(unittest.TestCase):

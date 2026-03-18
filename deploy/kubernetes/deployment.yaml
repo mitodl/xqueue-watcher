@@ -37,15 +37,6 @@ spec:
           imagePullPolicy: Always
           command: ["xqueue-watcher", "-d", "/etc/xqueue-watcher"]
 
-          env:
-            # NEW_RELIC_LICENSE_KEY injected from secret if using newrelic extra
-            - name: NEW_RELIC_LICENSE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: xqueue-watcher-secrets
-                  key: new-relic-license-key
-                  optional: true
-
           resources:
             requests:
               cpu: "100m"

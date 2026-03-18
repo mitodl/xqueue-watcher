@@ -3,8 +3,7 @@ FROM python:3.11-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    PATH="/edx/app/xqueue_watcher/.venv/bin:$PATH"
+    LC_ALL=C.UTF-8
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git-core && \
@@ -20,7 +19,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY . /edx/app/xqueue_watcher
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev && \
+    ln -s /edx/app/xqueue_watcher/.venv/bin/xqueue-watcher /usr/local/bin/xqueue-watcher
 # Note: the `codejail` optional extra (edx-codejail) is intentionally omitted
 # from this image.  In the Kubernetes deployment, student code runs inside an
 # isolated container (ContainerGrader) — the container boundary provides the

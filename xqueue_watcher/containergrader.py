@@ -114,6 +114,15 @@ class ContainerGrader(Grader):
                            XQWATCHER_GRADER_MEMORY_LIMIT env var, or "256Mi".
       timeout            - Maximum wall-clock seconds a grading job may run. Defaults
                            to XQWATCHER_GRADER_TIMEOUT env var, or 20.
+      strip_path_components - Number of leading path components to strip from
+                           the grader path (relative to grader_root) before
+                           passing it to the container entrypoint.  Use this
+                           when the LMS grader_payload ``grader`` field still
+                           contains a legacy prefix from the old git-clone
+                           setup, e.g. ``{queue_name}/graders/{actual_path}``.
+                           Set to 2 to strip both the queue name and the
+                           redundant repo subdirectory.  Default: 0 (no
+                           stripping).
       image_pull_policy  - Kubernetes imagePullPolicy for grading Jobs: "Always",
                            "IfNotPresent", or "Never". When None (default) the policy
                            is inferred from the image reference: "IfNotPresent" for
@@ -142,6 +151,7 @@ class ContainerGrader(Grader):
         image_pull_policy=None,
         poll_image_digest=False,
         digest_poll_interval=300,
+        strip_path_components=0,
         **kwargs,
     ):
         env_defaults = get_container_grader_defaults()
@@ -157,6 +167,7 @@ class ContainerGrader(Grader):
         self.cpu_limit = cpu_limit if cpu_limit is not None else env_defaults["cpu_limit"]
         self.memory_limit = memory_limit if memory_limit is not None else env_defaults["memory_limit"]
         self.timeout = timeout if timeout is not None else env_defaults["timeout"]
+        self.strip_path_components = int(strip_path_components)
 
         # image_pull_policy: explicit override or auto-detect from image ref.
         # Normalise to title-case ("Always", "IfNotPresent", "Never") regardless
@@ -278,7 +289,18 @@ class ContainerGrader(Grader):
         # The grader scripts are baked into the course-specific image at grader_path.
         # working_dir must stay at /grader (the WORKDIR of the base image) so that
         # `python -m grader_support.entrypoint` can locate the grader_support package.
-        grader_abs = str(grader_path)
+        #
+        # Legacy LMS configs may include a queue-name prefix in the grader path
+        # (e.g. "{queue_name}/graders/{actual_path}") left over from the old
+        # git-clone deployment.  strip_path_components removes N leading components
+        # from the path relative to grader_root before constructing the container arg.
+        if self.strip_path_components > 0:
+            from pathlib import Path as _Path
+            rel = _Path(grader_path).relative_to(self.grader_root)
+            stripped = _Path(*rel.parts[self.strip_path_components:])
+            grader_abs = str(self.grader_root / stripped)
+        else:
+            grader_abs = str(grader_path)
 
         return k8s_client.V1Job(
             api_version="batch/v1",

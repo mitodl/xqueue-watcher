@@ -10,7 +10,9 @@ No AppArmor or elevated host privileges are required.
 """
 
 import json
+import logging
 import random
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -22,6 +24,68 @@ from .env_settings import get_container_grader_defaults
 _BACKEND_KUBERNETES = "kubernetes"
 _BACKEND_DOCKER = "docker"
 _SUPPORTED_BACKENDS = (_BACKEND_KUBERNETES, _BACKEND_DOCKER)
+
+log = logging.getLogger(__name__)
+
+
+class ImageDigestPoller:
+    """
+    Background thread that periodically resolves an image tag to its digest.
+
+    Resolves ``repo:tag`` → ``repo@sha256:…`` by querying the Docker registry
+    via the Docker SDK's ``inspect_distribution`` API (no image pull required).
+    The resolved reference is cached and refreshed every ``poll_interval`` seconds.
+
+    Thread-safe: ``resolved_image`` may be read from any thread at any time.
+
+    If the initial resolution fails, ``resolved_image`` returns the original
+    unresolved reference so that grading can proceed with ``imagePullPolicy:
+    Always`` as a safe fallback.
+    """
+
+    def __init__(self, image: str, poll_interval: int = 300) -> None:
+        self._image = image
+        self._poll_interval = poll_interval
+        self._resolved: str | None = None
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(
+            target=self._poll_loop, name=f"digest-poller-{image}", daemon=True
+        )
+        self._thread.start()
+
+    @property
+    def resolved_image(self) -> str:
+        with self._lock:
+            return self._resolved if self._resolved is not None else self._image
+
+    def _poll_loop(self) -> None:
+        while True:
+            self._refresh()
+            time.sleep(self._poll_interval)
+
+    def _refresh(self) -> None:
+        try:
+            import docker as docker_sdk
+
+            client = docker_sdk.APIClient()
+            info = client.inspect_distribution(self._image)
+            digest = info["Descriptor"]["digest"]
+            repo = self._image.split(":")[0].split("@")[0]
+            resolved = f"{repo}@{digest}"
+            with self._lock:
+                if self._resolved != resolved:
+                    log.info(
+                        "Resolved grader image %s → %s", self._image, resolved
+                    )
+                    self._resolved = resolved
+        except Exception:
+            log.warning(
+                "Failed to resolve digest for grader image %s; "
+                "will retry in %ds",
+                self._image,
+                self._poll_interval,
+                exc_info=True,
+            )
 
 
 class ContainerGrader(Grader):
@@ -35,21 +99,35 @@ class ContainerGrader(Grader):
 
     Configuration (passed as KWARGS in the conf.d JSON handler config):
 
-      grader_root   - Path to the grader directory inside the container image.
-                      For the Docker backend this is bind-mounted from the host;
-                      for Kubernetes the scripts are baked into the image.
-      image         - Docker image to run. Should extend grader-base and include
-                      all course-specific grader scripts and dependencies.
-      backend       - "kubernetes" or "docker". Defaults to
-                      XQWATCHER_GRADER_BACKEND env var, or "kubernetes".
-      namespace     - Kubernetes namespace to create Jobs in. Defaults to
-                      XQWATCHER_GRADER_NAMESPACE env var, or "default".
-      cpu_limit     - CPU limit for the grading container. Defaults to
-                      XQWATCHER_GRADER_CPU_LIMIT env var, or "500m".
-      memory_limit  - Memory limit for the grading container. Defaults to
-                      XQWATCHER_GRADER_MEMORY_LIMIT env var, or "256Mi".
-      timeout       - Maximum wall-clock seconds a grading job may run. Defaults
-                      to XQWATCHER_GRADER_TIMEOUT env var, or 20.
+      grader_root        - Path to the grader directory inside the container image.
+                           For the Docker backend this is bind-mounted from the host;
+                           for Kubernetes the scripts are baked into the image.
+      image              - Docker image to run. Should extend grader-base and include
+                           all course-specific grader scripts and dependencies.
+      backend            - "kubernetes" or "docker". Defaults to
+                           XQWATCHER_GRADER_BACKEND env var, or "kubernetes".
+      namespace          - Kubernetes namespace to create Jobs in. Defaults to
+                           XQWATCHER_GRADER_NAMESPACE env var, or "default".
+      cpu_limit          - CPU limit for the grading container. Defaults to
+                           XQWATCHER_GRADER_CPU_LIMIT env var, or "500m".
+      memory_limit       - Memory limit for the grading container. Defaults to
+                           XQWATCHER_GRADER_MEMORY_LIMIT env var, or "256Mi".
+      timeout            - Maximum wall-clock seconds a grading job may run. Defaults
+                           to XQWATCHER_GRADER_TIMEOUT env var, or 20.
+      image_pull_policy  - Kubernetes imagePullPolicy for grading Jobs: "Always",
+                           "IfNotPresent", or "Never". When None (default) the policy
+                           is inferred from the image reference: "IfNotPresent" for
+                           digest-pinned refs (``repo@sha256:…``), "Always" for
+                           tag-based refs (no digest present).
+      poll_image_digest  - When True and ``image`` is a tag-based reference, start
+                           a background ``ImageDigestPoller`` that periodically
+                           resolves the tag to its current digest.  Grading Jobs will
+                           use the most recently resolved ``repo@digest`` reference,
+                           which ensures Kubernetes nodes always pull the latest
+                           pushed image without relying on ``imagePullPolicy: Always``
+                           for every pod. Default: False.
+      digest_poll_interval - Seconds between digest resolution polls when
+                           ``poll_image_digest`` is True. Default: 300.
     """
 
     def __init__(
@@ -61,6 +139,9 @@ class ContainerGrader(Grader):
         cpu_limit=None,
         memory_limit=None,
         timeout=None,
+        image_pull_policy=None,
+        poll_image_digest=False,
+        digest_poll_interval=300,
         **kwargs,
     ):
         env_defaults = get_container_grader_defaults()
@@ -76,6 +157,37 @@ class ContainerGrader(Grader):
         self.cpu_limit = cpu_limit if cpu_limit is not None else env_defaults["cpu_limit"]
         self.memory_limit = memory_limit if memory_limit is not None else env_defaults["memory_limit"]
         self.timeout = timeout if timeout is not None else env_defaults["timeout"]
+
+        # image_pull_policy: explicit override or auto-detect from image ref.
+        if image_pull_policy is not None:
+            self.image_pull_policy = image_pull_policy
+        elif "@sha256:" in image:
+            self.image_pull_policy = "IfNotPresent"
+        else:
+            self.image_pull_policy = "Always"
+
+        # Optional background digest polling for tag-based image references.
+        self._digest_poller: ImageDigestPoller | None = None
+        if poll_image_digest and "@sha256:" not in image:
+            self._digest_poller = ImageDigestPoller(
+                image=image, poll_interval=digest_poll_interval
+            )
+            log.info(
+                "Started digest poller for grader image %s (interval=%ds)",
+                image,
+                digest_poll_interval,
+            )
+
+    def _effective_image(self) -> str:
+        """Return the image reference to use for container execution.
+
+        If a digest poller is active and has resolved a digest, returns the
+        pinned ``repo@sha256:…`` form.  Falls back to the configured tag-based
+        reference otherwise.
+        """
+        if self._digest_poller is not None:
+            return self._digest_poller.resolved_image
+        return self.image
 
     # ------------------------------------------------------------------
     # Internal: container execution
@@ -197,7 +309,8 @@ class ContainerGrader(Grader):
                         containers=[
                             k8s_client.V1Container(
                                 name="grader",
-                                image=self.image,
+                                image=self._effective_image(),
+                                image_pull_policy=self.image_pull_policy,
                                 # entrypoint signature: GRADER_FILE SEED
                                 args=[grader_abs, str(seed)],
                                 working_dir="/grader",
@@ -310,7 +423,7 @@ class ContainerGrader(Grader):
             # containers.run() does not accept a timeout argument; using detach=True
             # lets us call container.wait(timeout=...) to cap execution time.
             container = client.containers.run(
-                image=self.image,
+                image=self._effective_image(),
                 # entrypoint signature: GRADER_FILE SEED
                 command=[container_grader_path, str(seed)],
                 working_dir="/grader",

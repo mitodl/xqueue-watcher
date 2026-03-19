@@ -30,6 +30,18 @@ def main():
 
     results = {"errors": [], "tests": [], "correct": False, "score": 0}
 
+    # Install gettext into builtins BEFORE loading the grader module.
+    # Grader scripts may call _() at module level (e.g. in input_validators),
+    # so _ must be available before exec_module runs.
+    import gettext
+    lang = os.environ.get("GRADER_LANGUAGE", "en")
+    grader_dir = os.path.dirname(os.path.abspath(grader_path))
+    locale_dir = os.path.join(grader_dir, "conf", "locale")
+    trans = gettext.translation(
+        "graders", localedir=locale_dir, fallback=True, languages=[lang]
+    )
+    trans.install(names=None)
+
     # Load the grader module to access test definitions, preprocessors, and
     # input validators.  The grader script is baked into this image.
     spec = importlib.util.spec_from_file_location("grader_module", grader_path)
@@ -43,16 +55,6 @@ def main():
         results["errors"].extend(errors)
         print(json.dumps(results))
         return
-
-    # Locale support: course graders may translate error messages.
-    import gettext
-    lang = os.environ.get("GRADER_LANGUAGE", "en")
-    grader_dir = os.path.dirname(os.path.abspath(grader_path))
-    locale_dir = os.path.join(grader_dir, "conf", "locale")
-    trans = gettext.translation(
-        "graders", localedir=locale_dir, fallback=True, languages=[lang]
-    )
-    trans.install(names=None)
 
     # Preprocess both the staff answer and the student submission.
     answer_path = os.path.join(grader_dir, "answer.py")

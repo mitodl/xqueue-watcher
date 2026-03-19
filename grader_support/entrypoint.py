@@ -61,6 +61,12 @@ def main():
     with open(answer_path, "rb") as f:
         answer = f.read().decode("utf-8")
 
+    # Normalize tabs to spaces before preprocessing.  Many course grader files
+    # were authored for Python 2 which tolerated mixed tab/space indentation;
+    # Python 3's exec raises TabError on such code.
+    answer = answer.expandtabs(4)
+    submission_code = submission_code.expandtabs(4)
+
     processed_answer = "# coding: utf8\n" + grader.preprocess(answer)
     processed_submission = "# coding: utf8\n" + grader.preprocess(submission_code)
 

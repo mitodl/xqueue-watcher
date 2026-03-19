@@ -159,8 +159,14 @@ class ContainerGrader(Grader):
         self.timeout = timeout if timeout is not None else env_defaults["timeout"]
 
         # image_pull_policy: explicit override or auto-detect from image ref.
+        # Normalise to title-case ("Always", "IfNotPresent", "Never") regardless
+        # of how the value was supplied in KWARGS — the Kubernetes API is
+        # case-sensitive and rejects variants like "always" or "ALWAYS".
+        _policy_map = {p.lower(): p for p in ("Always", "IfNotPresent", "Never")}
         if image_pull_policy is not None:
-            self.image_pull_policy = image_pull_policy
+            self.image_pull_policy = _policy_map.get(
+                image_pull_policy.strip().lower(), image_pull_policy.strip()
+            )
         elif "@sha256:" in image:
             self.image_pull_policy = "IfNotPresent"
         else:

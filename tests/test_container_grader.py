@@ -8,10 +8,11 @@ execution paths without requiring a live Docker daemon or cluster.
 import json
 from pathlib import Path
 from unittest import mock
+from unittest.mock import patch
 
 import pytest
 
-from xqueue_watcher.containergrader import ContainerGrader, _parse_cpu_millis
+from xqueue_watcher.containergrader import ContainerGrader, _parse_cpu_millis, _parse_memory_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -56,13 +57,61 @@ class TestContainerGraderInit:
         with pytest.raises(ValueError, match="Unsupported backend"):
             make_grader(backend="podman")
 
-    def test_defaults(self):
+    def test_defaults_from_env_when_no_kwargs(self):
+        """With no kwargs, values come from env defaults (all at baseline)."""
         g = ContainerGrader(grader_root="/graders", image="img:latest")
         assert g.backend == "kubernetes"
         assert g.namespace == "default"
         assert g.cpu_limit == "500m"
         assert g.memory_limit == "256Mi"
         assert g.timeout == 20
+
+    def test_kwargs_override_env_defaults(self):
+        """Explicit kwargs always win over env defaults."""
+        env = {
+            "XQWATCHER_GRADER_BACKEND": "docker",
+            "XQWATCHER_GRADER_NAMESPACE": "env-ns",
+            "XQWATCHER_GRADER_CPU_LIMIT": "250m",
+            "XQWATCHER_GRADER_MEMORY_LIMIT": "128Mi",
+            "XQWATCHER_GRADER_TIMEOUT": "5",
+        }
+        with patch.dict("os.environ", env):
+            g = ContainerGrader(
+                grader_root="/graders",
+                image="img:latest",
+                backend="kubernetes",
+                namespace="kwarg-ns",
+                cpu_limit="1000m",
+                memory_limit="512Mi",
+                timeout=99,
+            )
+        assert g.backend == "kubernetes"
+        assert g.namespace == "kwarg-ns"
+        assert g.cpu_limit == "1000m"
+        assert g.memory_limit == "512Mi"
+        assert g.timeout == 99
+
+    def test_env_defaults_applied_when_no_kwargs(self):
+        """Env vars are used when the corresponding kwarg is absent."""
+        env = {
+            "XQWATCHER_GRADER_BACKEND": "docker",
+            "XQWATCHER_GRADER_NAMESPACE": "grading",
+            "XQWATCHER_GRADER_CPU_LIMIT": "750m",
+            "XQWATCHER_GRADER_MEMORY_LIMIT": "512Mi",
+            "XQWATCHER_GRADER_TIMEOUT": "30",
+        }
+        with patch.dict("os.environ", env):
+            g = ContainerGrader(grader_root="/graders", image="img:latest")
+        assert g.backend == "docker"
+        assert g.namespace == "grading"
+        assert g.cpu_limit == "750m"
+        assert g.memory_limit == "512Mi"
+        assert g.timeout == 30
+
+    def test_invalid_backend_from_env_raises(self):
+        with patch.dict("os.environ", {"XQWATCHER_GRADER_BACKEND": "podman"}):
+            with pytest.raises(ValueError, match="Unsupported backend"):
+                ContainerGrader(grader_root="/graders", image="img:latest")
 
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import logging
 import unittest
 from unittest.mock import patch
 
-from xqueue_watcher.env_settings import configure_logging, get_manager_config_from_env
+from xqueue_watcher.env_settings import configure_logging, get_container_grader_defaults, get_manager_config_from_env
 from xqueue_watcher.settings import MANAGER_CONFIG_DEFAULTS
 
 
@@ -120,3 +120,55 @@ class TestGetManagerConfigFromEnv(unittest.TestCase):
     def test_returns_all_expected_keys(self):
         config = get_manager_config_from_env()
         self.assertEqual(set(config.keys()), set(MANAGER_CONFIG_DEFAULTS.keys()))
+
+
+class TestGetContainerGraderDefaults(unittest.TestCase):
+    def test_built_in_defaults_when_no_env(self):
+        with patch.dict("os.environ", {}, clear=False):
+            d = get_container_grader_defaults()
+        self.assertEqual(d["backend"], "kubernetes")
+        self.assertEqual(d["namespace"], "default")
+        self.assertEqual(d["cpu_limit"], "500m")
+        self.assertEqual(d["memory_limit"], "256Mi")
+        self.assertEqual(d["timeout"], 20)
+
+    def test_backend_from_env(self):
+        with patch.dict("os.environ", {"XQWATCHER_GRADER_BACKEND": "docker"}):
+            d = get_container_grader_defaults()
+        self.assertEqual(d["backend"], "docker")
+
+    def test_namespace_from_env(self):
+        with patch.dict("os.environ", {"XQWATCHER_GRADER_NAMESPACE": "grading"}):
+            d = get_container_grader_defaults()
+        self.assertEqual(d["namespace"], "grading")
+
+    def test_cpu_limit_from_env(self):
+        with patch.dict("os.environ", {"XQWATCHER_GRADER_CPU_LIMIT": "1"}):
+            d = get_container_grader_defaults()
+        self.assertEqual(d["cpu_limit"], "1")
+
+    def test_memory_limit_from_env(self):
+        with patch.dict("os.environ", {"XQWATCHER_GRADER_MEMORY_LIMIT": "1Gi"}):
+            d = get_container_grader_defaults()
+        self.assertEqual(d["memory_limit"], "1Gi")
+
+    def test_timeout_from_env(self):
+        with patch.dict("os.environ", {"XQWATCHER_GRADER_TIMEOUT": "60"}):
+            d = get_container_grader_defaults()
+        self.assertEqual(d["timeout"], 60)
+
+    def test_all_grader_env_vars_together(self):
+        env = {
+            "XQWATCHER_GRADER_BACKEND": "docker",
+            "XQWATCHER_GRADER_NAMESPACE": "ci",
+            "XQWATCHER_GRADER_CPU_LIMIT": "250m",
+            "XQWATCHER_GRADER_MEMORY_LIMIT": "128Mi",
+            "XQWATCHER_GRADER_TIMEOUT": "10",
+        }
+        with patch.dict("os.environ", env):
+            d = get_container_grader_defaults()
+        self.assertEqual(d["backend"], "docker")
+        self.assertEqual(d["namespace"], "ci")
+        self.assertEqual(d["cpu_limit"], "250m")
+        self.assertEqual(d["memory_limit"], "128Mi")
+        self.assertEqual(d["timeout"], 10)

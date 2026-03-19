@@ -31,6 +31,25 @@ XQWATCHER_LOGIN_POLL_INTERVAL
 XQWATCHER_FOLLOW_CLIENT_REDIRECTS
     Follow HTTP redirects when ``true`` or ``1``, ignore otherwise
     (boolean, default false).
+
+ContainerGrader defaults
+~~~~~~~~~~~~~~~~~~~~~~~~
+These allow operators to set deployment-wide grader defaults without repeating
+them in every conf.d queue JSON file.  Individual queue configs may still
+override any of these values in their ``KWARGS`` block.
+
+XQWATCHER_GRADER_BACKEND
+    Container backend: ``kubernetes`` (default) or ``docker``.
+XQWATCHER_GRADER_NAMESPACE
+    Kubernetes namespace in which grading Jobs are created (default:
+    ``default``).  Ignored by the Docker backend.
+XQWATCHER_GRADER_CPU_LIMIT
+    CPU limit for grading containers in Kubernetes / Docker notation
+    (default: ``500m``).
+XQWATCHER_GRADER_MEMORY_LIMIT
+    Memory limit for grading containers, e.g. ``256Mi`` (default: ``256Mi``).
+XQWATCHER_GRADER_TIMEOUT
+    Maximum wall-clock seconds a grading job may run (integer, default 20).
 """
 
 import logging
@@ -43,6 +62,40 @@ _PREFIX = "XQWATCHER_"
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(process)d [%(name)s] %(filename)s:%(lineno)d - %(message)s"
 
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _get_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if raw in ("1", "true", "yes"):
+        return True
+    if raw in ("0", "false", "no"):
+        return False
+    return default
+
+
+def _get_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if raw:
+        return int(raw)
+    return default
+
+
+def _get_str(name: str, default: str) -> str:
+    raw = os.environ.get(name, "").strip()
+    return raw if raw else default
+
+
+def _get_auth(name: str, default):
+    raw = os.environ.get(name, "").strip()
+    return raw if raw else default
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def configure_logging() -> None:
     """
@@ -87,29 +140,6 @@ def configure_logging() -> None:
     })
 
 
-def _get_bool(name: str, default: bool) -> bool:
-    raw = os.environ.get(name, "").strip().lower()
-    if raw in ("1", "true", "yes"):
-        return True
-    if raw in ("0", "false", "no"):
-        return False
-    return default
-
-
-def _get_int(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    if raw:
-        return int(raw)
-    return default
-
-
-def _get_auth(name: str, default):
-    raw = os.environ.get(name, "").strip()
-    if raw:
-        return raw
-    return default
-
-
 def get_manager_config_from_env() -> dict:
     """
     Return manager configuration populated from environment variables.
@@ -145,60 +175,18 @@ def get_manager_config_from_env() -> dict:
     }
 
 
-
-def _get_bool(name: str, default: bool) -> bool:
-    raw = os.environ.get(name, "").strip().lower()
-    if raw in ("1", "true", "yes"):
-        return True
-    if raw in ("0", "false", "no"):
-        return False
-    return default
-
-
-def _get_int(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    if raw:
-        return int(raw)
-    return default
-
-
-def _get_auth(name: str, default):
-    raw = os.environ.get(name, "").strip()
-    if raw:
-        return raw
-    return default
-
-
-def get_manager_config_from_env() -> dict:
+def get_container_grader_defaults() -> dict:
     """
-    Return manager configuration populated from environment variables.
+    Return deployment-wide ContainerGrader defaults from environment variables.
 
-    Values not present in the environment fall back to
-    :data:`~xqueue_watcher.settings.MANAGER_CONFIG_DEFAULTS`.
+    These values are used when a ``ContainerGrader`` is constructed without
+    an explicit value for the corresponding parameter.  Any value supplied
+    directly in the conf.d ``KWARGS`` block takes precedence.
     """
     return {
-        "HTTP_BASIC_AUTH": _get_auth(
-            f"{_PREFIX}HTTP_BASIC_AUTH",
-            MANAGER_CONFIG_DEFAULTS["HTTP_BASIC_AUTH"],
-        ),
-        "POLL_TIME": _get_int(
-            f"{_PREFIX}POLL_TIME",
-            MANAGER_CONFIG_DEFAULTS["POLL_TIME"],
-        ),
-        "REQUESTS_TIMEOUT": _get_int(
-            f"{_PREFIX}REQUESTS_TIMEOUT",
-            MANAGER_CONFIG_DEFAULTS["REQUESTS_TIMEOUT"],
-        ),
-        "POLL_INTERVAL": _get_int(
-            f"{_PREFIX}POLL_INTERVAL",
-            MANAGER_CONFIG_DEFAULTS["POLL_INTERVAL"],
-        ),
-        "LOGIN_POLL_INTERVAL": _get_int(
-            f"{_PREFIX}LOGIN_POLL_INTERVAL",
-            MANAGER_CONFIG_DEFAULTS["LOGIN_POLL_INTERVAL"],
-        ),
-        "FOLLOW_CLIENT_REDIRECTS": _get_bool(
-            f"{_PREFIX}FOLLOW_CLIENT_REDIRECTS",
-            MANAGER_CONFIG_DEFAULTS["FOLLOW_CLIENT_REDIRECTS"],
-        ),
+        "backend": _get_str(f"{_PREFIX}GRADER_BACKEND", "kubernetes"),
+        "namespace": _get_str(f"{_PREFIX}GRADER_NAMESPACE", "default"),
+        "cpu_limit": _get_str(f"{_PREFIX}GRADER_CPU_LIMIT", "500m"),
+        "memory_limit": _get_str(f"{_PREFIX}GRADER_MEMORY_LIMIT", "256Mi"),
+        "timeout": _get_int(f"{_PREFIX}GRADER_TIMEOUT", 20),
     }

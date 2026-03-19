@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 
 from .grader import Grader
+from .env_settings import get_container_grader_defaults
 
 
 _BACKEND_KUBERNETES = "kubernetes"
@@ -39,35 +40,42 @@ class ContainerGrader(Grader):
                       for Kubernetes the scripts are baked into the image.
       image         - Docker image to run. Should extend grader-base and include
                       all course-specific grader scripts and dependencies.
-      backend       - "kubernetes" (default) or "docker".
-      namespace     - Kubernetes namespace to create Jobs in (default: "default").
-      cpu_limit     - CPU limit for the grading container (default: "500m").
-      memory_limit  - Memory limit for the grading container (default: "256Mi").
-      timeout       - Maximum wall-clock seconds a grading job may run (default: 20).
+      backend       - "kubernetes" or "docker". Defaults to
+                      XQWATCHER_GRADER_BACKEND env var, or "kubernetes".
+      namespace     - Kubernetes namespace to create Jobs in. Defaults to
+                      XQWATCHER_GRADER_NAMESPACE env var, or "default".
+      cpu_limit     - CPU limit for the grading container. Defaults to
+                      XQWATCHER_GRADER_CPU_LIMIT env var, or "500m".
+      memory_limit  - Memory limit for the grading container. Defaults to
+                      XQWATCHER_GRADER_MEMORY_LIMIT env var, or "256Mi".
+      timeout       - Maximum wall-clock seconds a grading job may run. Defaults
+                      to XQWATCHER_GRADER_TIMEOUT env var, or 20.
     """
 
     def __init__(
         self,
         grader_root,
         image,
-        backend=_BACKEND_KUBERNETES,
-        namespace="default",
-        cpu_limit="500m",
-        memory_limit="256Mi",
-        timeout=20,
+        backend=None,
+        namespace=None,
+        cpu_limit=None,
+        memory_limit=None,
+        timeout=None,
         **kwargs,
     ):
-        if backend not in _SUPPORTED_BACKENDS:
+        env_defaults = get_container_grader_defaults()
+        resolved_backend = backend if backend is not None else env_defaults["backend"]
+        if resolved_backend not in _SUPPORTED_BACKENDS:
             raise ValueError(
-                f"Unsupported backend {backend!r}. Choose from {_SUPPORTED_BACKENDS}."
+                f"Unsupported backend {resolved_backend!r}. Choose from {_SUPPORTED_BACKENDS}."
             )
         super().__init__(grader_root=grader_root, fork_per_item=False, **kwargs)
         self.image = image
-        self.backend = backend
-        self.namespace = namespace
-        self.cpu_limit = cpu_limit
-        self.memory_limit = memory_limit
-        self.timeout = timeout
+        self.backend = resolved_backend
+        self.namespace = namespace if namespace is not None else env_defaults["namespace"]
+        self.cpu_limit = cpu_limit if cpu_limit is not None else env_defaults["cpu_limit"]
+        self.memory_limit = memory_limit if memory_limit is not None else env_defaults["memory_limit"]
+        self.timeout = timeout if timeout is not None else env_defaults["timeout"]
 
     # ------------------------------------------------------------------
     # Internal: container execution

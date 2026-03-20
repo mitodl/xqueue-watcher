@@ -5,9 +5,6 @@ RUN useradd -m -u 1000 --shell /bin/false grader
 
 WORKDIR /grader
 
-# Install minimal runtime dependency needed by grader_support
-RUN pip install --no-cache-dir path-py
-
 # Copy the grader_support framework into the image
 COPY grader_support/ ./grader_support/
 

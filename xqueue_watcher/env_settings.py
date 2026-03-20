@@ -199,4 +199,5 @@ def get_container_grader_defaults() -> dict:
         "cpu_limit": _get_str(f"{_PREFIX}GRADER_CPU_LIMIT", "500m"),
         "memory_limit": _get_str(f"{_PREFIX}GRADER_MEMORY_LIMIT", "256Mi"),
         "timeout": _get_int(f"{_PREFIX}GRADER_TIMEOUT", 20),
+        "docker_host_grader_root": _get_str(f"{_PREFIX}DOCKER_HOST_GRADER_ROOT", None),
     }

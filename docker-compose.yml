@@ -29,6 +29,12 @@ services:
       - ./data:/graders:rw
       # Give xqueue-watcher access to the Docker socket so it can spawn grader containers.
       - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # The Docker daemon interprets bind-mount sources relative to the *host*
+      # filesystem, not the watcher container.  Set this to the absolute host-side
+      # path that corresponds to /graders inside this container (i.e. the absolute
+      # path of ./data on your machine).
+      XQWATCHER_DOCKER_HOST_GRADER_ROOT: /absolute/host/path/to/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: xqueue-watcher -d /etc/xqueue-watcher

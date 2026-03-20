@@ -114,6 +114,16 @@ class ContainerGrader(Grader):
                            XQWATCHER_GRADER_MEMORY_LIMIT env var, or "256Mi".
       timeout            - Maximum wall-clock seconds a grading job may run. Defaults
                            to XQWATCHER_GRADER_TIMEOUT env var, or 20.
+      docker_host_grader_root - Host-side absolute path corresponding to grader_root
+                           inside the watcher container.  Required when xqueue-watcher
+                           itself runs in a container (e.g. via docker-compose with the
+                           Docker socket mounted): the Docker daemon interprets
+                           bind-mount sources relative to the *host* filesystem, so
+                           without this mapping the grader directory will not be found.
+                           Example: if ``./data`` is mounted at ``/graders`` in the
+                           watcher container, set this to the absolute host path of
+                           ``./data``.  Defaults to XQWATCHER_DOCKER_HOST_GRADER_ROOT
+                           env var, or None (watcher runs directly on the host).
       image_pull_policy  - Kubernetes imagePullPolicy for grading Jobs: "Always",
                            "IfNotPresent", or "Never". When None (default) the policy
                            is inferred from the image reference: "IfNotPresent" for
@@ -142,6 +152,7 @@ class ContainerGrader(Grader):
         image_pull_policy=None,
         poll_image_digest=False,
         digest_poll_interval=300,
+        docker_host_grader_root=None,
         **kwargs,
     ):
         env_defaults = get_container_grader_defaults()
@@ -157,6 +168,11 @@ class ContainerGrader(Grader):
         self.cpu_limit = cpu_limit if cpu_limit is not None else env_defaults["cpu_limit"]
         self.memory_limit = memory_limit if memory_limit is not None else env_defaults["memory_limit"]
         self.timeout = timeout if timeout is not None else env_defaults["timeout"]
+        self.docker_host_grader_root = (
+            docker_host_grader_root
+            if docker_host_grader_root is not None
+            else env_defaults["docker_host_grader_root"]
+        )
 
         # image_pull_policy: explicit override or auto-detect from image ref.
         # Normalise to title-case ("Always", "IfNotPresent", "Never") regardless
@@ -438,6 +454,18 @@ class ContainerGrader(Grader):
         # as an absolute in-container path.
         container_grader_path = f"/graders/{grader_rel}"
 
+        # When xqueue-watcher runs inside a container, grader_dir is a
+        # container-internal path.  docker_host_grader_root maps grader_root to
+        # the equivalent directory on the Docker host so that bind-mounts reach
+        # the correct location.
+        if self.docker_host_grader_root:
+            rel = Path(grader_path).parent.resolve().relative_to(
+                Path(self.grader_root).resolve()
+            )
+            host_grader_dir = str(Path(self.docker_host_grader_root) / rel)
+        else:
+            host_grader_dir = grader_dir
+
         env = {
             "SUBMISSION_CODE": code,
             "GRADER_LANGUAGE": grader_config.get("lang", "en"),
@@ -455,7 +483,7 @@ class ContainerGrader(Grader):
                 command=[container_grader_path, str(seed)],
                 working_dir="/grader",
                 environment=env,
-                volumes={grader_dir: {"bind": "/graders", "mode": "ro"}},
+                volumes={host_grader_dir: {"bind": "/graders", "mode": "ro"}},
                 mem_limit=_parse_memory_bytes(self.memory_limit),
                 nano_cpus=int(_parse_cpu_millis(self.cpu_limit) * 1_000_000),
                 network_disabled=True,

@@ -416,7 +416,15 @@ class ContainerGrader(Grader):
             raise RuntimeError(f"No pods found for Job {job_name}.")
 
         pod_name = pods.items[0].metadata.name
-        log = core_v1.read_namespaced_pod_log(name=pod_name, namespace=self.namespace)
+        # Request stdout only. The default stream is "All" which interleaves
+        # stderr into the same string, corrupting the JSON the entrypoint
+        # prints to stdout.
+        log = core_v1.read_namespaced_pod_log(
+            name=pod_name,
+            namespace=self.namespace,
+            container="grader",
+            stream="Stdout",
+        )
         return log.encode("utf-8")
 
     def _run_docker(self, grader_path, code, seed, grader_config=None):

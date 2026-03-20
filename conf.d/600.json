@@ -1,8 +1,7 @@
 {
     "test-123": {
-        "SERVER": "http://127.0.0.1:18040",
+        "SERVER_REF": "default",
         "CONNECTIONS": 1,
-        "AUTH": ["lms", "lms"],
         "HANDLERS": [
             {
                 "HANDLER": "xqueue_watcher.containergrader.ContainerGrader",

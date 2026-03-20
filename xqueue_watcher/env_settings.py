@@ -32,6 +32,46 @@ XQWATCHER_FOLLOW_CLIENT_REDIRECTS
     Follow HTTP redirects when ``true`` or ``1``, ignore otherwise
     (boolean, default false).
 
+Named XQueue server references (Kubernetes)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+XQueue server connection details — URL and credentials — are kept in
+``xqueue_servers.json`` in the config root.  In Kubernetes this file is
+the preferred mechanism for injecting secrets: create a Kubernetes Secret
+whose keys are ``xqueue_servers.json`` and mount it as a volume into the
+config root directory.  Queue configs in ``conf.d`` then reference servers
+by name using the ``SERVER_REF`` field, keeping credentials out of those
+files entirely.
+
+Example Kubernetes Secret (``stringData`` form)::
+
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: xqueue-servers
+    stringData:
+      xqueue_servers.json: |
+        {
+          "default": {
+            "SERVER": "http://xqueue-svc:18040",
+            "AUTH": ["lms", "s3cr3t"]
+          }
+        }
+
+Mount it alongside the rest of the config::
+
+    volumes:
+      - name: xqueue-servers
+        secret:
+          secretName: xqueue-servers
+    volumeMounts:
+      - name: xqueue-servers
+        mountPath: /config/xqueue_servers.json
+        subPath: xqueue_servers.json
+
+Queue configs in ``conf.d`` can then omit ``SERVER`` and ``AUTH``::
+
+    { "my-queue": { "SERVER_REF": "default", "CONNECTIONS": 1, ... } }
+
 ContainerGrader defaults
 ~~~~~~~~~~~~~~~~~~~~~~~~
 These allow operators to set deployment-wide grader defaults without repeating

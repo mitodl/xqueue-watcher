@@ -1,9 +1,12 @@
 import logging
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from xqueue_watcher.env_settings import configure_logging, get_container_grader_defaults, get_manager_config_from_env
-from xqueue_watcher.settings import MANAGER_CONFIG_DEFAULTS
+from xqueue_watcher.settings import MANAGER_CONFIG_DEFAULTS, get_xqueue_servers
 
 
 class TestConfigureLogging(unittest.TestCase):
@@ -172,3 +175,45 @@ class TestGetContainerGraderDefaults(unittest.TestCase):
         self.assertEqual(d["cpu_limit"], "250m")
         self.assertEqual(d["memory_limit"], "128Mi")
         self.assertEqual(d["timeout"], 10)
+
+
+class TestGetXqueueServers(unittest.TestCase):
+    def _write_servers_file(self, tmp_dir, data):
+        path = Path(tmp_dir) / "xqueue_servers.json"
+        path.write_text(json.dumps(data))
+        return path
+
+    def test_returns_empty_dict_when_file_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "xqueue_servers.json"
+            self.assertEqual(get_xqueue_servers(path), {})
+
+    def test_returns_named_servers(self):
+        data = {
+            "default": {"SERVER": "http://xqueue:18040", "AUTH": ["u", "p"]},
+            "secondary": {"SERVER": "http://xqueue2:18040", "AUTH": ["u2", "p2"]},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_servers_file(tmp, data)
+            servers = get_xqueue_servers(path)
+        self.assertEqual(set(servers.keys()), {"default", "secondary"})
+        self.assertEqual(servers["default"]["SERVER"], "http://xqueue:18040")
+        self.assertEqual(servers["default"]["AUTH"], ["u", "p"])
+
+    def test_missing_server_key_raises(self):
+        data = {"bad": {"AUTH": ["u", "p"]}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_servers_file(tmp, data)
+            with self.assertRaises(ValueError) as ctx:
+                get_xqueue_servers(path)
+        self.assertIn("SERVER", str(ctx.exception))
+        self.assertIn("bad", str(ctx.exception))
+
+    def test_missing_auth_key_raises(self):
+        data = {"bad": {"SERVER": "http://xqueue:18040"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_servers_file(tmp, data)
+            with self.assertRaises(ValueError) as ctx:
+                get_xqueue_servers(path)
+        self.assertIn("AUTH", str(ctx.exception))
+        self.assertIn("bad", str(ctx.exception))

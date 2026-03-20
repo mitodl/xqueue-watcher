@@ -529,8 +529,23 @@ class ContainerGrader(Grader):
 
         try:
             output = self._run(grader_path, submission, seed, grader_config)
+            self.log.debug(
+                "Raw container output (%d bytes) for grader %s: %r",
+                len(output),
+                grader_path,
+                output[:4096],
+            )
             grade_result = json.loads(output.decode("utf-8"))
             return grade_result
+        except json.JSONDecodeError:
+            self.log.error(
+                "Failed to parse container output as JSON for grader %s. "
+                "Raw output (%d bytes): %r",
+                grader_path,
+                len(output),
+                output[:4096],
+            )
+            raise
         except Exception:
             self.log.exception(
                 "Grading container failed. grader = %s", grader_path

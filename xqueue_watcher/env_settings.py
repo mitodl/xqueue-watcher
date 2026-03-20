@@ -50,6 +50,16 @@ XQWATCHER_GRADER_MEMORY_LIMIT
     Memory limit for grading containers, e.g. ``256Mi`` (default: ``256Mi``).
 XQWATCHER_GRADER_TIMEOUT
     Maximum wall-clock seconds a grading job may run (integer, default 20).
+XQWATCHER_DOCKER_HOST_GRADER_ROOT
+    Host-side absolute path that corresponds to ``grader_root`` inside the
+    watcher container.  Required when xqueue-watcher itself runs in a
+    container with the Docker backend: the Docker daemon interprets
+    bind-mount source paths relative to the *host* filesystem, not the
+    watcher container, so without this mapping the grader directory will
+    not be found.  Example: if ``./data`` is mounted at ``/graders`` in the
+    watcher container, set this to the absolute host path of ``./data``
+    (e.g. ``/home/user/project/data``).  Unset by default (watcher runs
+    directly on the host).
 """
 
 import logging
@@ -83,7 +93,7 @@ def _get_int(name: str, default: int) -> int:
     return default
 
 
-def _get_str(name: str, default: str) -> str:
+def _get_str(name: str, default: str | None) -> str | None:
     raw = os.environ.get(name, "").strip()
     return raw if raw else default
 

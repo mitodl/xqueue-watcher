@@ -144,7 +144,7 @@ class Grader:
 
             elapsed = time.time() - start
             _metrics.grading_time_histogram.record(elapsed)
-            self.log.info('grading-time seconds=%.3f', elapsed)
+            self.log.debug('grading-time seconds=%.3f', elapsed)
 
             # Make valid JSON message
             reply = {'correct': results['correct'],

@@ -1,3 +1,6 @@
+ARG UV_VERSION=0.10.7
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
 FROM python:3.11-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -11,7 +14,7 @@ RUN apt-get update && \
 
 RUN useradd -m --shell /bin/false app
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /edx/app/xqueue_watcher
 
@@ -19,8 +22,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY . /edx/app/xqueue_watcher
-RUN uv sync --frozen --no-dev && \
-    ln -s /edx/app/xqueue_watcher/.venv/bin/xqueue-watcher /usr/local/bin/xqueue-watcher
+RUN uv sync --frozen --no-dev
 # Note: the `codejail` optional extra (edx-codejail) is intentionally omitted
 # from this image.  In the Kubernetes deployment, student code runs inside an
 # isolated container (ContainerGrader) — the container boundary provides the
@@ -30,6 +32,10 @@ RUN uv sync --frozen --no-dev && \
 # Kubernetes pods and adds no meaningful security benefit on top of container
 # isolation.  Install the `codejail` extra only when running the legacy
 # JailedGrader on a bare-metal or VM host with AppArmor configured.
+
+# Put the venv on PATH so `xqueue-watcher` and any other installed scripts are
+# available without a symlink.
+ENV PATH="/edx/app/xqueue_watcher/.venv/bin:$PATH"
 
 USER app
 

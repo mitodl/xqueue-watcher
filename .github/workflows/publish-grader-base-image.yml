@@ -1,11 +1,7 @@
 name: Publish grader base image
 
 # Builds grader_support/Dockerfile.base and pushes to:
-#   - DockerHub:  mitodl/xqueue-watcher-grader-base
-#   - GHCR:       ghcr.io/mitodl/xqueue-watcher-grader-base
-#
-# DockerHub is the trigger for the Concourse grader-image pipelines that build
-# course-specific grader images.  GHCR is kept for reference / pull-through.
+#   - GHCR: ghcr.io/mitodl/xqueue-watcher-grader-base
 
 on:
   push:
@@ -35,12 +31,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Log in to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -59,7 +49,6 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.IMAGE_NAME }}
             ghcr.io/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}

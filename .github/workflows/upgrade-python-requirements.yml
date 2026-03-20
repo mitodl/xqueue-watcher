@@ -5,6 +5,8 @@ on:
     - cron: "15 15 1/14 * *"
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   update-dependencies:
     runs-on: ubuntu-24.04

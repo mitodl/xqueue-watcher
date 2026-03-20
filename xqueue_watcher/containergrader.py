@@ -416,15 +416,18 @@ class ContainerGrader(Grader):
             raise RuntimeError(f"No pods found for Job {job_name}.")
 
         pod_name = pods.items[0].metadata.name
-        # The `stream` PodLogOptions field requires the PodLogsQuery feature
-        # gate which is opt-in even on K8s 1.35.  Fetch the combined log and
-        # extract the JSON result as the last non-empty line — the entrypoint
-        # always prints exactly one JSON object as its final stdout line.
-        log = core_v1.read_namespaced_pod_log(
+        # The Kubernetes Python client deserializes the log response body via
+        # json.loads() then casts to str(), turning valid JSON into Python repr
+        # (single-quoted dict).  Pass _preload_content=False to get the raw
+        # urllib3 response object and read the bytes directly, bypassing the
+        # client's deserialisation entirely.
+        raw = core_v1.read_namespaced_pod_log(
             name=pod_name,
             namespace=self.namespace,
             container="grader",
+            _preload_content=False,
         )
+        log = raw.data.decode("utf-8")
         # Scan backwards to find the last non-empty line (the JSON result).
         # Earlier lines may be stderr interleaved by the Kubernetes log API.
         json_line = None

@@ -416,16 +416,26 @@ class ContainerGrader(Grader):
             raise RuntimeError(f"No pods found for Job {job_name}.")
 
         pod_name = pods.items[0].metadata.name
-        # Request stdout only. The default stream is "All" which interleaves
-        # stderr into the same string, corrupting the JSON the entrypoint
-        # prints to stdout.
+        # The `stream` PodLogOptions field requires the PodLogsQuery feature
+        # gate which is opt-in even on K8s 1.35.  Fetch the combined log and
+        # extract the JSON result as the last non-empty line — the entrypoint
+        # always prints exactly one JSON object as its final stdout line.
         log = core_v1.read_namespaced_pod_log(
             name=pod_name,
             namespace=self.namespace,
             container="grader",
-            stream="Stdout",
         )
-        return log.encode("utf-8")
+        # Scan backwards to find the last non-empty line (the JSON result).
+        # Earlier lines may be stderr interleaved by the Kubernetes log API.
+        json_line = None
+        for line in reversed(log.splitlines()):
+            stripped = line.strip()
+            if stripped:
+                json_line = stripped
+                break
+        if not json_line:
+            raise RuntimeError(f"No output from grading pod {pod_name}.")
+        return json_line.encode("utf-8")
 
     def _run_docker(self, grader_path, code, seed, grader_config=None):
         """Run a local Docker container and return stdout bytes."""

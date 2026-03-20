@@ -14,6 +14,20 @@ import importlib.util
 import json
 import os
 import sys
+import traceback
+
+_DEBUG = os.environ.get("GRADER_DEBUG", "").lower() in ("1", "true", "yes")
+
+
+def _dbg(*args):
+    """Print debug info to stderr when GRADER_DEBUG=1.
+
+    Kubernetes reads pod logs via read_namespaced_pod_log which captures both
+    stdout and stderr.  Keep this off by default so the JSON on stdout is the
+    only output in the pod log that containergrader.py needs to parse.
+    """
+    if _DEBUG:
+        print("[DEBUG entrypoint]", *args, file=sys.stderr, flush=True)
 
 
 def main():
@@ -28,6 +42,9 @@ def main():
     seed = int(sys.argv[2])
     submission_code = os.environ.get("SUBMISSION_CODE", "")
 
+    _dbg(f"grader_path={grader_path!r}  seed={seed}")
+    _dbg(f"submission_code ({len(submission_code)} chars): {submission_code[:120]!r}")
+
     results = {"errors": [], "tests": [], "correct": False, "score": 0}
 
     # Install gettext into builtins BEFORE loading the grader module.
@@ -37,29 +54,48 @@ def main():
     lang = os.environ.get("GRADER_LANGUAGE", "en")
     grader_dir = os.path.dirname(os.path.abspath(grader_path))
     locale_dir = os.path.join(grader_dir, "conf", "locale")
+    _dbg(f"grader_dir={grader_dir!r}  locale_dir={locale_dir!r}")
     trans = gettext.translation(
         "graders", localedir=locale_dir, fallback=True, languages=[lang]
     )
     trans.install(names=None)
+    _dbg("gettext installed")
 
     # Load the grader module to access test definitions, preprocessors, and
     # input validators.  The grader script is baked into this image.
-    spec = importlib.util.spec_from_file_location("grader_module", grader_path)
-    grader_module_obj = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(grader_module_obj)
-    grader = grader_module_obj.grader
+    _dbg(f"loading grader module from {grader_path!r}")
+    try:
+        spec = importlib.util.spec_from_file_location("grader_module", grader_path)
+        grader_module_obj = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(grader_module_obj)
+        grader = grader_module_obj.grader
+        _dbg(f"grader module loaded OK, tests={len(list(grader.tests()))}")
+    except Exception:
+        _dbg("EXCEPTION loading grader module:")
+        traceback.print_exc(file=sys.stderr)
+        raise
 
     # Validate submission format before doing any work.
-    errors = grader.input_errors(submission_code)
+    _dbg("checking input_errors")
+    try:
+        errors = grader.input_errors(submission_code)
+    except Exception:
+        _dbg("EXCEPTION in input_errors:")
+        traceback.print_exc(file=sys.stderr)
+        raise
     if errors:
+        _dbg(f"input_errors returned: {errors}")
         results["errors"].extend(errors)
         print(json.dumps(results))
         return
+    _dbg("input_errors: none")
 
     # Preprocess both the staff answer and the student submission.
     answer_path = os.path.join(grader_dir, "answer.py")
+    _dbg(f"reading answer from {answer_path!r}")
     with open(answer_path, "rb") as f:
         answer = f.read().decode("utf-8")
+    _dbg(f"answer ({len(answer)} chars): {answer[:200]!r}")
 
     # Normalize tabs to spaces before preprocessing.  Many course grader files
     # were authored for Python 2 which tolerated mixed tab/space indentation;
@@ -69,6 +105,8 @@ def main():
 
     processed_answer = "# coding: utf8\n" + grader.preprocess(answer)
     processed_submission = "# coding: utf8\n" + grader.preprocess(submission_code)
+    _dbg(f"processed_answer ({len(processed_answer)} chars): {processed_answer[:300]!r}")
+    _dbg(f"processed_submission ({len(processed_submission)} chars): {processed_submission[:300]!r}")
 
     # Write to /tmp, which is backed by an emptyDir volume mount in Kubernetes
     # (readOnlyRootFilesystem=True prevents writes to the root FS).
@@ -76,24 +114,40 @@ def main():
         f.write(processed_answer)
     with open("/tmp/submission.py", "w", encoding="utf-8") as f:
         f.write(processed_submission)
+    _dbg("wrote /tmp/answer.py and /tmp/submission.py")
 
     # Make /tmp and the grader directory importable so run.py can find them.
-    sys.path.insert(0, "/tmp")
+    # /tmp must come BEFORE grader_dir: the preprocessed answer.py and
+    # submission.py in /tmp must shadow the original source files in grader_dir.
     sys.path.insert(0, grader_dir)
+    sys.path.insert(0, "/tmp")
+    _dbg(f"sys.path[:4]={sys.path[:4]}")
 
     from . import run as run_module
     from .gradelib import EndTest
 
     grader_name = os.path.splitext(os.path.basename(grader_path))[0]
+    _dbg(f"grader_name={grader_name!r}")
 
     # Run the staff answer first to get expected outputs.
+    _dbg("running staff answer")
     expected_output = run_module.run(grader_name, "answer", seed)
+    _dbg(f"expected_output grader status={expected_output['grader']['status']!r}"
+         f"  submission status={expected_output['submission']['status']!r}"
+         f"  exceptions={expected_output['exceptions']}"
+         f"  results_count={len(expected_output['results'])}")
+    if expected_output["grader"].get("exception"):
+        _dbg(f"grader exception:\n{expected_output['grader']['exception']}")
+    if expected_output["submission"].get("exception"):
+        _dbg(f"answer exception:\n{expected_output['submission']['exception']}")
+
     expected_ok = (
         not expected_output["exceptions"]
         and expected_output["grader"]["status"] == "ok"
         and expected_output["submission"]["status"] == "ok"
     )
     if not expected_ok:
+        _dbg("expected_ok=False → returning staff-solution error")
         results["errors"].append(
             "There was a problem running the staff solution (Staff debug)."
         )
@@ -101,7 +155,15 @@ def main():
         return
 
     # Run the student submission.
+    _dbg("running student submission")
     actual_output = run_module.run(grader_name, "submission", seed)
+    _dbg(f"actual_output grader status={actual_output['grader']['status']!r}"
+         f"  submission status={actual_output['submission']['status']!r}"
+         f"  exceptions={actual_output['exceptions']}"
+         f"  results_count={len(actual_output['results'])}")
+    if actual_output["submission"].get("exception"):
+        _dbg(f"submission exception:\n{actual_output['submission']['exception']}")
+
     actual_ok = actual_output["grader"]["status"] == "ok"
 
     if actual_output["submission"]["status"] != "ok":

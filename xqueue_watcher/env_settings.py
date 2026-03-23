@@ -31,6 +31,15 @@ XQWATCHER_LOGIN_POLL_INTERVAL
 XQWATCHER_FOLLOW_CLIENT_REDIRECTS
     Follow HTTP redirects when ``true`` or ``1``, ignore otherwise
     (boolean, default false).
+XQWATCHER_VERIFY_TLS
+    Verify TLS certificates for outbound HTTPS requests when ``true`` or ``1``
+    (boolean, default true).  Set to ``false`` only in development environments
+    with self-signed certificates.  **Never disable in production.**
+XQWATCHER_SUBMISSION_SIZE_LIMIT
+    Maximum submission size in bytes (integer, default 1048576 = 1 MB).
+    Submissions larger than this value are rejected before a grading container
+    is launched.  Prevents etcd object-size overflows and resource-exhaustion
+    attacks via very large environment variables.
 
 Named XQueue server references (Kubernetes)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

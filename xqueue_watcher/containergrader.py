@@ -6,11 +6,24 @@ Supports two backends:
   - "docker": runs a local Docker container (local dev / CI)
 
 This is the recommended replacement for JailedGrader on Kubernetes deployments.
-No AppArmor or elevated host privileges are required.
+The Kubernetes backend applies a defence-in-depth security posture:
+  - Non-root user (UID 1000), read-only root filesystem
+  - All Linux capabilities dropped
+  - RuntimeDefault seccomp profile (restricts available syscalls)
+  - /tmp emptyDir with a size cap (prevents disk exhaustion)
+  - No service-account token auto-mounted
+  - CPU, memory, and PID limits to prevent resource exhaustion
+
+Operators should also ensure:
+  - The grader namespace enforces the Kubernetes "restricted" Pod Security Standard
+  - A NetworkPolicy is applied to prevent egress from grading pods (see deploy/)
+  - Grader images are signed and scanned; use digest-pinned references in production
+  - The TTL controller is enabled so orphaned Jobs are reaped automatically
 """
 
 import json
 import logging
+import os
 import random
 import threading
 import time
@@ -24,6 +37,14 @@ from .env_settings import get_container_grader_defaults
 _BACKEND_KUBERNETES = "kubernetes"
 _BACKEND_DOCKER = "docker"
 _SUPPORTED_BACKENDS = (_BACKEND_KUBERNETES, _BACKEND_DOCKER)
+
+# Maximum submission size (bytes). Submissions larger than this are rejected
+# before a container is launched to prevent etcd object-size overflows (K8s
+# limit ~1.5 MB) and resource-exhaustion via very large env vars.
+_SUBMISSION_SIZE_WARN_BYTES = 32 * 1024   # 32 KB
+_SUBMISSION_SIZE_LIMIT_BYTES = int(
+    os.environ.get("XQWATCHER_SUBMISSION_SIZE_LIMIT", str(1024 * 1024))  # 1 MB default
+)
 
 log = logging.getLogger(__name__)
 
@@ -228,11 +249,16 @@ class ContainerGrader(Grader):
         Returns the raw stdout bytes (JSON grade result).
         Raises RuntimeError on timeout or non-zero exit.
         """
-        # Warn on large submissions: K8s env vars contribute to the Pod object
-        # stored in etcd (limit ~1.5 MB total); very large submissions may cause
-        # job creation to fail.  Submissions > 32 KB are unusual for course work.
+        # Enforce submission size limits. Very large submissions passed as env
+        # vars contribute to the Pod object stored in etcd (~1.5 MB limit), and
+        # can be used for resource-exhaustion attacks.
         code_bytes = len(code.encode("utf-8"))
-        if code_bytes > 32 * 1024:
+        if code_bytes > _SUBMISSION_SIZE_LIMIT_BYTES:
+            raise ValueError(
+                f"Submission too large ({code_bytes} bytes). "
+                f"Maximum allowed size is {_SUBMISSION_SIZE_LIMIT_BYTES} bytes."
+            )
+        if code_bytes > _SUBMISSION_SIZE_WARN_BYTES:
             self.log.warning(
                 "Submission code is large (%d bytes). Very large submissions may "
                 "exceed Kubernetes API object size limits when passed via env var.",
@@ -323,6 +349,9 @@ class ContainerGrader(Grader):
                         security_context=k8s_client.V1PodSecurityContext(
                             run_as_non_root=True,
                             run_as_user=1000,
+                            seccomp_profile=k8s_client.V1SeccompProfile(
+                                type="RuntimeDefault",
+                            ),
                         ),
                         # Grader scripts are baked into the course-specific image
                         # (no volume mount required).  The image extends
@@ -354,6 +383,7 @@ class ContainerGrader(Grader):
                                     limits={
                                         "cpu": self.cpu_limit,
                                         "memory": self.memory_limit,
+                                        "pods": "256",
                                     },
                                     requests={
                                         "cpu": "100m",
@@ -364,6 +394,9 @@ class ContainerGrader(Grader):
                                     allow_privilege_escalation=False,
                                     read_only_root_filesystem=True,
                                     capabilities=k8s_client.V1Capabilities(drop=["ALL"]),
+                                    seccomp_profile=k8s_client.V1SeccompProfile(
+                                        type="RuntimeDefault",
+                                    ),
                                 ),
                                 volume_mounts=[
                                     k8s_client.V1VolumeMount(
@@ -379,7 +412,9 @@ class ContainerGrader(Grader):
                             # submission to /tmp/submission.py before executing it.
                             k8s_client.V1Volume(
                                 name="tmp",
-                                empty_dir=k8s_client.V1EmptyDirVolumeSource(),
+                                empty_dir=k8s_client.V1EmptyDirVolumeSource(
+                                    size_limit="50Mi",
+                                ),
                             ),
                         ],
                     )

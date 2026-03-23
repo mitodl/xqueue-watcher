@@ -130,6 +130,13 @@ class Grader:
 
             self.log.debug(f"Processing submission, grader payload: {payload}")
             relative_grader_path = grader_config['grader']
+            # Reject paths that contain ".." components before resolving to
+            # avoid symlink edge-cases that could slip past the relative_to()
+            # check below.  Absolute paths are still subject to that check.
+            if '..' in Path(relative_grader_path).parts:
+                raise ValueError(
+                    f"Grader path {relative_grader_path!r} contains path traversal sequences."
+                )
             grader_path = (self.grader_root / relative_grader_path).resolve()
             # Guard against path traversal: ensure the resolved path stays within grader_root.
             try:

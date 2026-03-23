@@ -91,6 +91,7 @@ class XQueueClient:
                     auth=self.http_basic_auth,
                     timeout=self.requests_timeout,
                     allow_redirects=self.follow_client_redirects,
+                    verify=_VERIFY_TLS,
                     **kwargs
                 )
             except requests.exceptions.ConnectionError as e:
@@ -117,7 +118,7 @@ class XQueueClient:
             return True
         url = self.xqueue_server + '/xqueue/login/'
         log.debug("Trying to login to %s with user: %s", url, self.username)
-        response = self.session.request('post', url, auth=self.http_basic_auth, data={
+        response = self.session.request('post', url, auth=self.http_basic_auth, verify=_VERIFY_TLS, data={
             'username': self.username,
             'password': self.password,
             })
@@ -155,7 +156,7 @@ class XQueueClient:
             if result:
                 reply = {'xqueue_body': json.dumps(result),
                          'xqueue_header': content['xqueue_header']}
-                status, message = self._request('post', '/xqueue/put_result/', data=reply, verify=_VERIFY_TLS)
+                status, message = self._request('post', '/xqueue/put_result/', data=reply)
                 if not status:
                     log.error('Failure for %r -> %r', reply, message)
                 success.append(status)

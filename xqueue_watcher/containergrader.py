@@ -91,7 +91,13 @@ class ImageDigestPoller:
             client = docker_sdk.APIClient()
             info = client.inspect_distribution(self._image)
             digest = info["Descriptor"]["digest"]
-            repo = self._image.split(":")[0].split("@")[0]
+            # Strip digest ref (image@sha256:...) then strip tag if present.
+            # A tag is the last colon-separated segment that appears after the
+            # last slash (so registry ports like registry:5000/... are preserved).
+            base = self._image.split("@")[0]
+            last_colon = base.rfind(":")
+            last_slash = base.rfind("/")
+            repo = base[:last_colon] if last_colon > last_slash else base
             resolved = f"{repo}@{digest}"
             with self._lock:
                 if self._resolved != resolved:
@@ -221,6 +227,12 @@ class ContainerGrader(Grader):
                 digest_poll_interval,
             )
 
+        # Lazily-initialised Kubernetes API clients (created once per instance
+        # on first use to avoid per-submission config-load overhead).
+        self._k8s_lock = threading.Lock()
+        self._k8s_batch_v1 = None
+        self._k8s_core_v1 = None
+
     def _effective_image(self) -> str:
         """Return the image reference to use for container execution.
 
@@ -235,6 +247,32 @@ class ContainerGrader(Grader):
     # ------------------------------------------------------------------
     # Internal: container execution
     # ------------------------------------------------------------------
+
+    def _get_k8s_clients(self):
+        """Return cached (batch_v1, core_v1) Kubernetes API clients.
+
+        Config is loaded and clients are constructed once per instance the
+        first time this method is called.  Subsequent calls return the cached
+        objects, avoiding repeated kubeconfig reads on every submission.
+        """
+        if self._k8s_batch_v1 is not None:
+            return self._k8s_batch_v1, self._k8s_core_v1
+        with self._k8s_lock:
+            if self._k8s_batch_v1 is None:
+                try:
+                    from kubernetes import client as k8s_client, config as k8s_config
+                except ImportError:
+                    raise RuntimeError(
+                        "The 'kubernetes' package is required for the kubernetes backend. "
+                        "Install it with: uv add kubernetes"
+                    )
+                try:
+                    k8s_config.load_incluster_config()
+                except k8s_config.ConfigException:
+                    k8s_config.load_kube_config()
+                self._k8s_batch_v1 = k8s_client.BatchV1Api()
+                self._k8s_core_v1 = k8s_client.CoreV1Api()
+        return self._k8s_batch_v1, self._k8s_core_v1
 
     def _run(self, grader_path, code, seed, grader_config=None):
         """
@@ -272,22 +310,11 @@ class ContainerGrader(Grader):
 
     def _run_kubernetes(self, grader_path, code, seed, grader_config):
         """Create a Kubernetes Job, wait for it, collect stdout, delete it."""
-        try:
-            from kubernetes import client as k8s_client, config as k8s_config
-        except ImportError:
-            raise RuntimeError(
-                "The 'kubernetes' package is required for the kubernetes backend. "
-                "Install it with: uv add kubernetes"
-            )
+        from kubernetes import client as k8s_client  # noqa: F401 — needed for V1DeleteOptions
 
-        try:
-            k8s_config.load_incluster_config()
-        except k8s_config.ConfigException:
-            k8s_config.load_kube_config()
+        batch_v1, core_v1 = self._get_k8s_clients()
 
         job_name = f"xqueue-grader-{uuid.uuid4().hex[:12]}"
-        batch_v1 = k8s_client.BatchV1Api()
-        core_v1 = k8s_client.CoreV1Api()
 
         job_manifest = self._build_k8s_job(job_name, grader_path, code, seed, grader_config)
 
@@ -383,7 +410,7 @@ class ContainerGrader(Grader):
                                     limits={
                                         "cpu": self.cpu_limit,
                                         "memory": self.memory_limit,
-                                        "pods": "256",
+                                        "pids": "256",
                                     },
                                     requests={
                                         "cpu": "100m",

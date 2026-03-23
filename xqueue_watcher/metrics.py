@@ -12,7 +12,9 @@ needed:
 ``OTEL_SERVICE_NAME``
     Service name attached to every metric (default: ``xqueue-watcher``).
 ``OTEL_RESOURCE_ATTRIBUTES``
-    Additional resource attributes as ``key=value,...`` pairs.
+    Additional resource attributes as ``key=value,...`` pairs.  Parsed
+    automatically by the OpenTelemetry SDK's ``Resource.create()`` call —
+    no custom parsing is needed in this module.
 """
 
 import os

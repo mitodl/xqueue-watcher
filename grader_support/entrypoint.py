@@ -209,7 +209,7 @@ def main():
         try:
             correct = test.compare_results(exp_out, act_out)
         except EndTest as e:
-            if e is not None:
+            if str(e).strip():
                 act_out += f"\n*** ERROR: {e} ***"
             correct = False
 

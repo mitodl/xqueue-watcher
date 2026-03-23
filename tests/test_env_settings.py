@@ -49,7 +49,7 @@ class TestConfigureLogging(unittest.TestCase):
 
 class TestGetManagerConfigFromEnv(unittest.TestCase):
     def test_defaults_when_no_env_vars_set(self):
-        with patch.dict("os.environ", {}, clear=False):
+        with patch.dict("os.environ", {}, clear=True):
             config = get_manager_config_from_env()
         self.assertEqual(config, MANAGER_CONFIG_DEFAULTS)
 
@@ -76,7 +76,7 @@ class TestGetManagerConfigFromEnv(unittest.TestCase):
     def test_http_basic_auth_from_env(self):
         with patch.dict("os.environ", {"XQWATCHER_HTTP_BASIC_AUTH": "user:secret"}):
             config = get_manager_config_from_env()
-        self.assertEqual(config["HTTP_BASIC_AUTH"], "user:secret")
+        self.assertEqual(config["HTTP_BASIC_AUTH"], ("user", "secret"))
 
     def test_http_basic_auth_empty_string_returns_none(self):
         with patch.dict("os.environ", {"XQWATCHER_HTTP_BASIC_AUTH": ""}):
@@ -98,7 +98,7 @@ class TestGetManagerConfigFromEnv(unittest.TestCase):
                 self.assertFalse(config["FOLLOW_CLIENT_REDIRECTS"])
 
     def test_follow_client_redirects_default_is_false(self):
-        with patch.dict("os.environ", {}, clear=False):
+        with patch.dict("os.environ", {}, clear=True):
             config = get_manager_config_from_env()
         self.assertFalse(config["FOLLOW_CLIENT_REDIRECTS"])
 
@@ -113,7 +113,7 @@ class TestGetManagerConfigFromEnv(unittest.TestCase):
         }
         with patch.dict("os.environ", env):
             config = get_manager_config_from_env()
-        self.assertEqual(config["HTTP_BASIC_AUTH"], "admin:pass")
+        self.assertEqual(config["HTTP_BASIC_AUTH"], ("admin", "pass"))
         self.assertEqual(config["POLL_TIME"], 20)
         self.assertEqual(config["REQUESTS_TIMEOUT"], 3)
         self.assertEqual(config["POLL_INTERVAL"], 2)

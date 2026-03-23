@@ -18,8 +18,9 @@ XQWATCHER_LOG_LEVEL
     Root log level (default: ``INFO``).  Accepts any standard Python level
     name: ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``, ``CRITICAL``.
 XQWATCHER_HTTP_BASIC_AUTH
-    HTTP Basic Auth credentials as ``username:password``.  Unset or empty
-    means no authentication (equivalent to ``None``).
+    HTTP Basic Auth credentials as ``username:password``.  Parsed into a
+    ``(username, password)`` tuple suitable for ``HTTPBasicAuth(*value)``.
+    Unset or empty means no authentication (equivalent to ``None``).
 XQWATCHER_POLL_TIME
     Seconds between liveness checks of client threads (integer, default 10).
 XQWATCHER_REQUESTS_TIMEOUT
@@ -149,7 +150,10 @@ def _get_str(name: str, default: str | None) -> str | None:
 
 def _get_auth(name: str, default):
     raw = os.environ.get(name, "").strip()
-    return raw if raw else default
+    if not raw:
+        return default
+    username, _, password = raw.partition(":")
+    return (username, password)
 
 
 # ---------------------------------------------------------------------------

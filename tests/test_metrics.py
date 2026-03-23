@@ -13,7 +13,7 @@ from xqueue_watcher.metrics import (
 
 class TestBuildMeterProvider(unittest.TestCase):
     def test_returns_meter_provider(self):
-        with patch.dict("os.environ", {}, clear=False):
+        with patch.dict("os.environ", {}, clear=True):
             provider = _build_meter_provider()
         self.assertIsInstance(provider, MeterProvider)
 

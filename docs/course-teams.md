@@ -364,6 +364,33 @@ If your grader image has dependencies beyond the standard library, or you want t
 exactly the environment that runs in production, build and run the grader container
 locally.
 
+**Fast path: `grade-local`.** `grader_support/tools/grade-local` is a small
+[cyclopts](https://cyclopts.readthedocs.io/) CLI that wraps everything below --
+locating your `grade_*.py`, defaulting the submission to the grader's own
+`answer.py`, building the image on request, and bind-mounting your grader directory
+so edits take effect without a rebuild. Copy it into your own repo (e.g. `bin/grade-local`)
+and run it from your repo root:
+
+```bash
+pip install cyclopts   # or add as a dev dependency
+
+# Build once (or pass --build to grade-local to build automatically):
+docker build --build-arg GRADER_BASE_IMAGE=mitodl/xqueue-watcher-grader-base:latest \
+    -t my-course:local .
+
+bin/grade-local unit-2/exercise-3/grader.py
+bin/grade-local unit-2/exercise-3/grader.py path/to/submission.py
+bin/grade-local unit-2/exercise-3/grader.py --debug   # GRADER_DEBUG=1 trace
+```
+
+It assumes the layout used by every course repo so far: a top-level `graders/`
+directory copied to `/graders/` in the image (`--graders-dir` overrides this), and
+an image tag defaulting to `<repo-dir-name>:local` (`--image` overrides this). See
+`graders-mit-600x` and `graders-mit-686x` for examples of repo-specific copies.
+
+The rest of this section walks through what `grade-local` automates, useful if you
+want to customize the flow or aren't using the standard layout.
+
 **Step 1 — Build the base image** (once per xqueue-watcher checkout):
 
 ```bash

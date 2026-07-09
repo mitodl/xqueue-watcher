@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""Run a course grader against a submission locally, in the real grader container.
+
+Runs the grader through `docker run` against the course repo's own grader image
+(built from its Dockerfile, which extends grader-base -- see
+grader_support/Dockerfile.base and docs/course-teams.md), so local results match
+production exactly: the container's ENTRYPOINT is
+`python -m grader_support.entrypoint`, the same engine xqueue-watcher's
+ContainerGrader invokes for real submissions.
+
+Course teams: copy this file into your own repo's bin/ (e.g. `bin/grade-local`)
+and run it from your repo root. It has no dependency on xqueue-watcher being
+checked out locally -- everything it needs is baked into the Docker image.
+
+The graders directory is bind-mounted read-only over the image's baked-in
+/graders/, so local edits to grade_*.py/answer.py take effect immediately without
+rebuilding the image. Only rebuild when your dependency manifest changes.
+
+Requires: docker, and the `cyclopts` package (pip install cyclopts, or add it as
+a dev dependency).
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Optional
+
+import cyclopts
+
+REPO_ROOT = Path.cwd()
+DEFAULT_GRADERS_DIR = REPO_ROOT / "graders"
+DEFAULT_IMAGE = f"{REPO_ROOT.name}:local"
+BUILD_CMD = (
+    "docker build --build-arg GRADER_BASE_IMAGE=mitodl/xqueue-watcher-grader-base:latest "
+    f"-t {DEFAULT_IMAGE} ."
+)
+
+app = cyclopts.App(help=__doc__)
+
+
+def _resolve_grader_path(grader: Path) -> Path:
+    grader = grader.resolve()
+    if grader.is_dir():
+        matches = sorted(grader.glob("grade_*.py"))
+        if len(matches) != 1:
+            raise ValueError(
+                f"expected exactly one grade_*.py in {grader}, found {len(matches)}: "
+                f"{[m.name for m in matches]}"
+            )
+        return matches[0]
+    return grader
+
+
+def _container_grader_path(grader_path: Path, graders_dir: Path) -> str:
+    try:
+        rel = grader_path.relative_to(graders_dir)
+    except ValueError:
+        raise SystemExit(f"{grader_path} is not under {graders_dir} (the image only has /graders/).")
+    return f"/graders/{rel.as_posix()}"
+
+
+def _image_exists(image: str) -> bool:
+    return subprocess.run(
+        ["docker", "image", "inspect", image], capture_output=True
+    ).returncode == 0
+
+
+@app.default
+def run(
+    grader: Path,
+    submission: Optional[Path] = None,
+    *,
+    seed: int = 42,
+    lang: str = "en",
+    hide_output: bool = False,
+    debug: bool = False,
+    image: str = DEFAULT_IMAGE,
+    graders_dir: Path = DEFAULT_GRADERS_DIR,
+    build: bool = False,
+    json_output: bool = False,
+) -> None:
+    """Grade a submission against a grader and print the result.
+
+    Parameters
+    ----------
+    grader: Path to a grade_*.py file, or the directory containing one.
+    submission: Path to the student submission. Defaults to the grader's own
+        answer.py, which is a useful smoke test for the grader itself.
+    seed: Random seed shared between the staff answer and the submission run.
+    lang: Language code, passed through as GRADER_LANGUAGE.
+    hide_output: Suppress per-test expected/actual output, matching the
+        HIDE_OUTPUT env var read by grader_support.entrypoint.
+    debug: Enable GRADER_DEBUG=1 and print the entrypoint's stderr trace.
+    image: Docker image tag to run. Defaults to "<repo-dir-name>:local". Build it
+        first (see BUILD_CMD) or pass --build.
+    graders_dir: Host directory bind-mounted read-only to /graders in the
+        container. Defaults to ./graders, matching the COPY in a typical course
+        Dockerfile (see docs/course-teams.md).
+    build: Build the image first if it's missing.
+    json_output: Print the raw result dict as JSON instead of a formatted report.
+    """
+    grader_path = _resolve_grader_path(grader)
+    graders_dir = graders_dir.resolve()
+    submission_path = (submission or grader_path.parent / "answer.py").resolve()
+    container_grader_path = _container_grader_path(grader_path, graders_dir)
+
+    if not _image_exists(image):
+        if build:
+            subprocess.run(["docker", "build", "-t", image, "."], cwd=REPO_ROOT, check=True)
+        else:
+            raise SystemExit(
+                f"Docker image {image!r} not found. Build it first:\n\n  {BUILD_CMD}\n\n"
+                f"or re-run with --build to build it automatically."
+            )
+
+    submission_code = submission_path.read_text(encoding="utf-8")
+
+    docker_cmd = [
+        "docker", "run", "--rm",
+        "-e", f"SUBMISSION_CODE={submission_code}",
+        "-e", f"GRADER_LANGUAGE={lang}",
+        "-e", f"HIDE_OUTPUT={'1' if hide_output else ''}",
+    ]
+    if debug:
+        docker_cmd += ["-e", "GRADER_DEBUG=1"]
+    docker_cmd += [
+        "-v", f"{graders_dir}:/graders:ro",
+        image,
+        container_grader_path, str(seed),
+    ]
+
+    proc = subprocess.run(docker_cmd, capture_output=True, text=True)
+
+    if debug and proc.stderr:
+        print(proc.stderr, file=sys.stderr)
+
+    if proc.returncode != 0 or not proc.stdout.strip():
+        print(f"docker run exited {proc.returncode} with no valid output.", file=sys.stderr)
+        if proc.stderr:
+            print(proc.stderr, file=sys.stderr)
+        raise SystemExit(1)
+
+    result = json.loads(proc.stdout)
+
+    if json_output:
+        print(json.dumps(result, indent=2))
+    else:
+        _print_report(grader_path, submission_path, result)
+
+    if result["errors"] or not result["correct"]:
+        raise SystemExit(1)
+
+
+def _print_report(grader_path: Path, submission_path: Path, result: dict) -> None:
+    print(f"grader:     {grader_path}")
+    print(f"submission: {submission_path}")
+    print()
+
+    for error in result["errors"]:
+        print(f"ERROR: {error}")
+    if result["errors"]:
+        print()
+
+    for short_desc, long_desc, correct, expected, actual in result["tests"]:
+        status = "PASS" if correct else "FAIL"
+        print(f"[{status}] {short_desc}")
+        if long_desc:
+            print(f"       {long_desc}")
+        if not correct:
+            print("       expected:")
+            for line in expected.splitlines():
+                print(f"         {line}")
+            print("       actual:")
+            for line in actual.splitlines():
+                print(f"         {line}")
+
+    print()
+    print(f"score: {result['score']} ({'correct' if result['correct'] else 'incorrect'})")
+
+
+if __name__ == "__main__":
+    app()

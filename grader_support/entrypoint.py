@@ -61,14 +61,27 @@ def main():
     trans.install(names=None)
     _dbg("gettext installed")
 
+    from . import run as run_module, graderutil
+    from .gradelib import EndTest
+
     # Load the grader module to access test definitions, preprocessors, and
     # input validators.  The grader script is baked into this image.
+    #
+    # This load (and each run_module.run() call below) is wrapped in its own
+    # graderutil.module_isolation() so that any modules it causes to be
+    # imported -- the grader module itself, and any helper modules the grader
+    # script imports -- are purged from sys.modules once we're done with them.
+    # Without this, module-level mutable state in those modules could leak
+    # into the later staff-answer/submission runs even though those runs are
+    # separately isolated from each other, because module_isolation() only
+    # rolls back modules imported *after* it takes its snapshot.
     _dbg(f"loading grader module from {grader_path!r}")
     try:
-        spec = importlib.util.spec_from_file_location("grader_module", grader_path)
-        grader_module_obj = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(grader_module_obj)
-        grader = grader_module_obj.grader
+        with graderutil.module_isolation():
+            spec = importlib.util.spec_from_file_location("grader_module", grader_path)
+            grader_module_obj = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(grader_module_obj)
+            grader = grader_module_obj.grader
         _dbg(f"grader module loaded OK, tests={len(list(grader.tests()))}")
     except Exception:
         _dbg("EXCEPTION loading grader module:")
@@ -123,15 +136,18 @@ def main():
     sys.path.insert(0, "/tmp")
     _dbg(f"sys.path[:4]={sys.path[:4]}")
 
-    from . import run as run_module
-    from .gradelib import EndTest
-
     grader_name = os.path.splitext(os.path.basename(grader_path))[0]
     _dbg(f"grader_name={grader_name!r}")
 
-    # Run the staff answer first to get expected outputs.
+    # Run the staff answer and the student submission as two isolated in-process
+    # imports of the grader module. Without module_isolation(), the second
+    # run_module.run() call below would hit Python's sys.modules cache instead of
+    # re-executing the grader module, silently reusing whatever mutable
+    # module-level state (generators, shared dicts/lists, gradelib.rand snapshotted
+    # via `from gradelib import *`) the first run left behind.
     _dbg("running staff answer")
-    expected_output = run_module.run(grader_name, "answer", seed)
+    with graderutil.module_isolation():
+        expected_output = run_module.run(grader_name, "answer", seed)
     _dbg(f"expected_output grader status={expected_output['grader']['status']!r}"
          f"  submission status={expected_output['submission']['status']!r}"
          f"  exceptions={expected_output['exceptions']}"
@@ -156,7 +172,8 @@ def main():
 
     # Run the student submission.
     _dbg("running student submission")
-    actual_output = run_module.run(grader_name, "submission", seed)
+    with graderutil.module_isolation():
+        actual_output = run_module.run(grader_name, "submission", seed)
     _dbg(f"actual_output grader status={actual_output['grader']['status']!r}"
          f"  submission status={actual_output['submission']['status']!r}"
          f"  exceptions={actual_output['exceptions']}"

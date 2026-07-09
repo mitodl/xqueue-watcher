@@ -375,7 +375,7 @@ and run it from your repo root:
 pip install cyclopts   # or add as a dev dependency
 
 # Build once (or pass --build to grade-local to build automatically):
-docker build --build-arg GRADER_BASE_IMAGE=mitodl/xqueue-watcher-grader-base:latest \
+docker build --build-arg GRADER_BASE_IMAGE=ghcr.io/openedx/xqueue-watcher-grader-base:latest \
     -t my-course:local .
 
 bin/grade-local unit-2/exercise-3/grader.py

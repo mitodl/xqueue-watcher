@@ -32,7 +32,7 @@ import cyclopts
 REPO_ROOT = Path.cwd()
 DEFAULT_GRADERS_DIR = REPO_ROOT / "graders"
 DEFAULT_IMAGE = f"{REPO_ROOT.name}:local"
-BUILD_ARGS = ["--build-arg", "GRADER_BASE_IMAGE=mitodl/xqueue-watcher-grader-base:latest"]
+BUILD_ARGS = ["--build-arg", "GRADER_BASE_IMAGE=ghcr.io/openedx/xqueue-watcher-grader-base:latest"]
 BUILD_CMD = " ".join(["docker", "build", *BUILD_ARGS, "-t", DEFAULT_IMAGE, "."])
 
 app = cyclopts.App(help=__doc__)
